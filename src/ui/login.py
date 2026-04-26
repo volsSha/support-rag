@@ -9,7 +9,10 @@ def create_login_page():
     async def login_page():
         inject_global_styles()
         settings = get_settings()
-        redirect_to = ui.query_params.get("redirect_to", "/chat")
+        request = getattr(ui.context.client, "request", None)
+        redirect_to = "/"
+        if request is not None:
+            redirect_to = request.query_params.get("redirect_to", "/")
 
         with ui.column().classes(
             "w-full min-h-screen flex items-center justify-center bg-gray-50"
