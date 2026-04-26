@@ -1,11 +1,12 @@
 from collections.abc import AsyncGenerator
 import json
 import logging
+import math
 
 from sqlalchemy import select
 
 from src.config import get_settings
-from src.db.models import Conversation, Document, DocumentChunk, Message
+from src.db.models import ChunkEmbedding, Conversation, Document, DocumentChunk, Message
 from src.rag.safety import RAGResult, Source, compute_confidence
 
 logger = logging.getLogger(__name__)
@@ -25,14 +26,34 @@ class RAGPipeline:
         from src.rag.context import build_context
         from src.rag.embeddings import encode_query
         from src.rag.reranker import rerank
-        from src.db.vec import search_similar
         from src.llm.openrouter import SYSTEM_PROMPT, get_llm_client
+        from src.db.engine import async_session_factory
 
         query_vector = encode_query(query)
 
-        results = search_similar(
-            self._db, query_vector, top_k=self._settings.reranker.top_k,
-        )
+        results: list[tuple[int, float]] = []
+        if self._db is not None:
+            from src.db.vec import search_similar
+
+            results = search_similar(
+                self._db, query_vector, top_k=self._settings.reranker.top_k,
+            )
+        else:
+            async with async_session_factory() as session:
+                emb_stmt = select(ChunkEmbedding)
+                embeddings = (await session.execute(emb_stmt)).scalars().all()
+
+            qnorm = math.sqrt(sum(v * v for v in query_vector)) or 1e-8
+            for row in embeddings:
+                vector = json.loads(row.embedding_json)
+                vnorm = math.sqrt(sum(v * v for v in vector)) or 1e-8
+                dot = sum(a * b for a, b in zip(query_vector, vector))
+                cosine = dot / (qnorm * vnorm)
+                distance = 1.0 - cosine
+                results.append((row.chunk_id, distance))
+
+            results.sort(key=lambda x: x[1])
+            results = results[: self._settings.reranker.top_k]
 
         if not results:
             yield RAGResult(
@@ -45,8 +66,6 @@ class RAGPipeline:
             return
 
         chunk_ids = [chunk_id for chunk_id, _ in results]
-        from src.db.engine import async_session_factory
-
         stmt = (
             select(DocumentChunk, Document)
             .join(Document, DocumentChunk.document_id == Document.id)
@@ -162,7 +181,6 @@ class RAGPipeline:
     async def ingest_document(self, document_id: int) -> int:
         from src.rag.embeddings import encode_documents
         from src.rag import chunker
-        from src.db.vec import insert_embedding
         from src.db.engine import async_session_factory
 
         stmt = select(Document).where(Document.id == document_id)
@@ -184,15 +202,37 @@ class RAGPipeline:
                 session.add(db_chunk)
                 await session.flush()
 
-                insert_embedding(self._db, db_chunk.id, embedding)
+                if self._db is not None:
+                    from src.db.vec import insert_embedding
+
+                    insert_embedding(self._db, db_chunk.id, embedding)
+                else:
+                    session.add(
+                        ChunkEmbedding(chunk_id=db_chunk.id, embedding_json=json.dumps(embedding))
+                    )
                 count += 1
 
             await session.commit()
             return count
 
     async def delete_document_vectors(self, chunk_ids: list[int]) -> None:
-        from src.db.vec import delete_embeddings
-        delete_embeddings(self._db, chunk_ids)
+        if not chunk_ids:
+            return
+
+        if self._db is not None:
+            from src.db.vec import delete_embeddings
+
+            delete_embeddings(self._db, chunk_ids)
+            return
+
+        from src.db.engine import async_session_factory
+
+        async with async_session_factory() as session:
+            stmt = select(ChunkEmbedding).where(ChunkEmbedding.chunk_id.in_(chunk_ids))
+            rows = (await session.execute(stmt)).scalars().all()
+            for row in rows:
+                await session.delete(row)
+            await session.commit()
 
 
 _pipeline: RAGPipeline | None = None

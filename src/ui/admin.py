@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
-
 from nicegui import app, background_tasks, ui
 
 from src.services.documents import create_document, delete_document, get_all_documents, ingest_document
@@ -128,23 +126,7 @@ async def _submit_document(dialog, title_input, content_input, url_input, catego
         document = await create_document(session, title, content, source_url, category)
         await session.commit()
         await session.refresh(document)
-
-        try:
-            import sqlite3
-            from pathlib import Path
-
-            from src.db.vec import insert_embedding, load_vec_extension
-
-            db_path = Path("data/app.db")
-            conn = sqlite3.connect(str(db_path))
-            load_vec_extension(conn)
-
-            from src.services.documents import ingest_document as _ingest
-
-            chunk_count = await _ingest(session, document.id, db_connection=conn)
-            conn.close()
-        except Exception:
-            chunk_count = 0
+        chunk_count = await ingest_document(session, document.id)
 
     dialog.close()
     ui.notify(f"Document created successfully ({chunk_count} chunks)", type="positive")
@@ -169,19 +151,7 @@ async def _do_delete(dialog, doc_id, refresh_callback):
     from src.db.engine import async_session_factory
 
     async with async_session_factory() as session:
-        try:
-            import sqlite3
-            from pathlib import Path
-
-            from src.db.vec import delete_embeddings, load_vec_extension
-
-            db_path = Path("data/app.db")
-            conn = sqlite3.connect(str(db_path))
-            load_vec_extension(conn)
-            await delete_document(session, doc_id, db_connection=conn)
-            conn.close()
-        except Exception:
-            await delete_document(session, doc_id)
+        await delete_document(session, doc_id)
 
     dialog.close()
     ui.notify("Document deleted", type="positive")

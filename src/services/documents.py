@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 
-from src.db.models import Document, DocumentChunk
+from src.db.models import ChunkEmbedding, Document, DocumentChunk
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,9 +52,11 @@ async def delete_document(session: AsyncSession, document_id: int, db_connection
     result = await session.execute(stmt)
     chunk_ids = [row[0] for row in result.all()]
 
-    if chunk_ids and db_connection is not None:
-        from src.db.vec import delete_embeddings
-        delete_embeddings(db_connection, chunk_ids)
+    if chunk_ids:
+        emb_stmt = select(ChunkEmbedding).where(ChunkEmbedding.chunk_id.in_(chunk_ids))
+        embeddings = (await session.execute(emb_stmt)).scalars().all()
+        for emb in embeddings:
+            await session.delete(emb)
 
     await session.delete(document)
     await session.commit()
@@ -89,9 +92,7 @@ async def ingest_document(
         session.add(db_chunk)
         await session.flush()
 
-        if db_connection is not None:
-            from src.db.vec import insert_embedding
-            insert_embedding(db_connection, db_chunk.id, embedding)
+        session.add(ChunkEmbedding(chunk_id=db_chunk.id, embedding_json=json.dumps(embedding)))
 
         count += 1
 
@@ -129,9 +130,11 @@ async def update_document(
         result = await session.execute(stmt)
         chunk_ids = [row[0] for row in result.all()]
 
-        if chunk_ids and db_connection is not None:
-            from src.db.vec import delete_embeddings
-            delete_embeddings(db_connection, chunk_ids)
+        if chunk_ids:
+            emb_stmt = select(ChunkEmbedding).where(ChunkEmbedding.chunk_id.in_(chunk_ids))
+            embeddings = (await session.execute(emb_stmt)).scalars().all()
+            for emb in embeddings:
+                await session.delete(emb)
 
         del_stmt = select(DocumentChunk).where(DocumentChunk.document_id == document_id)
         old_chunks = (await session.execute(del_stmt)).scalars().all()
@@ -155,9 +158,7 @@ async def update_document(
                 session.add(db_chunk)
                 await session.flush()
 
-                if db_connection is not None:
-                    from src.db.vec import insert_embedding
-                    insert_embedding(db_connection, db_chunk.id, embedding)
+                session.add(ChunkEmbedding(chunk_id=db_chunk.id, embedding_json=json.dumps(embedding)))
 
     await session.commit()
     await session.refresh(document)

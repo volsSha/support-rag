@@ -53,6 +53,20 @@ class DocumentChunk(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
 
     document: Mapped["Document"] = relationship(back_populates="chunks")
+    embedding: Mapped["ChunkEmbedding | None"] = relationship(back_populates="chunk")
+
+
+class ChunkEmbedding(Base):
+    __tablename__ = "chunk_embeddings"
+
+    chunk_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("document_chunks.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    embedding_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+    chunk: Mapped["DocumentChunk"] = relationship(back_populates="embedding")
 
 
 class Conversation(Base):

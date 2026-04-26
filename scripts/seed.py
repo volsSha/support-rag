@@ -1,5 +1,4 @@
 import asyncio
-import sqlite3
 from pathlib import Path
 
 from sqlalchemy import select
@@ -8,7 +7,6 @@ from src.auth.passwords import hash_password
 from src.config import get_settings
 from src.db.engine import async_session_factory
 from src.db.models import Document, User
-from src.db.vec import create_vec_table, load_vec_extension
 from src.rag.embeddings import load_embedding_model
 from src.services.documents import create_document, ingest_document
 
@@ -89,11 +87,6 @@ async def seed():
     print("Loading embedding model...")
     load_embedding_model()
 
-    db_path = Path("data/app.db")
-    db_connection = sqlite3.connect(str(db_path))
-    load_vec_extension(db_connection)
-    create_vec_table(db_connection)
-
     async with async_session_factory() as session:
         result = await session.execute(
             select(User).where(User.username == settings.seed.admin_username)
@@ -130,7 +123,7 @@ async def seed():
                 await session.refresh(doc)
 
                 chunk_count = await ingest_document(
-                    session, doc.id, db_connection=db_connection,
+                    session, doc.id,
                 )
                 total_chunks += chunk_count
                 print(f"  Created document: {doc_data['title']} ({chunk_count} chunks)")
@@ -141,9 +134,6 @@ async def seed():
             )
         else:
             print(f"{existing_count} document(s) already exist, skipping document seeding")
-
-    db_connection.close()
-
 
 if __name__ == "__main__":
     asyncio.run(seed())

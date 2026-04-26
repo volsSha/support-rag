@@ -1,4 +1,4 @@
-from pydantic import Field, SecretStr
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,15 +20,32 @@ class EmbeddingSettings(BaseSettings):
 
 
 class DatabaseSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="DATABASE_")
+    model_config = SettingsConfigDict(env_prefix="")
 
-    url: str = "sqlite+aiosqlite:///data/app.db"
+    url: str = Field(
+        default="sqlite+aiosqlite:///data/app.db",
+        validation_alias=AliasChoices("DATABASE__URL", "DATABASE_URL"),
+    )
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def normalize_url(cls, value: str) -> str:
+        if not isinstance(value, str):
+            return value
+        if value.startswith("postgres://"):
+            return "postgresql+asyncpg://" + value[len("postgres://") :]
+        if value.startswith("postgresql://") and "+asyncpg" not in value:
+            return "postgresql+asyncpg://" + value[len("postgresql://") :]
+        return value
 
 
 class RedisSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="REDIS_")
+    model_config = SettingsConfigDict(env_prefix="")
 
-    url: str = "redis://localhost:6379/0"
+    url: str = Field(
+        default="redis://localhost:6379/0",
+        validation_alias=AliasChoices("REDIS__URL", "REDIS_URL"),
+    )
 
 
 class RateLimitSettings(BaseSettings):
@@ -74,6 +91,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        env_nested_delimiter="__",
     )
 
     app_name: str = "Support RAG"
