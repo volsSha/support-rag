@@ -49,9 +49,19 @@ def chunk_document(text: str, chunk_size: int = 400, overlap: int = 80) -> list[
         return []
 
     lines = text.split("\n")
+
+    def find_header_for(para_text: str) -> str:
+        for i, line in enumerate(lines):
+            if para_text[:50] in line or line.strip() == para_text[: len(line.strip())]:
+                return _current_header(lines[: i + 1])
+        for i, line in enumerate(lines):
+            if para_text.split(".")[0].strip() in line:
+                return _current_header(lines[: i + 1])
+        return ""
+
     segments: list[str] = []
     for para in paragraphs:
-        header = _current_header(lines[: lines.index(para) + 1])
+        header = find_header_for(para)
         if len(para) <= char_target:
             prefix = f"{header}\n" if header else ""
             segments.append(f"{prefix}{para}")

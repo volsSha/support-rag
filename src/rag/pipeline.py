@@ -28,9 +28,9 @@ class RAGPipeline:
         from src.db.vec import search_similar
         from src.llm.openrouter import SYSTEM_PROMPT, get_llm_client
 
-        query_vector = await encode_query(query)
+        query_vector = encode_query(query)
 
-        results = await search_similar(
+        results = search_similar(
             self._db, query_vector, top_k=self._settings.reranker.top_k,
         )
 
@@ -45,12 +45,15 @@ class RAGPipeline:
             return
 
         chunk_ids = [chunk_id for chunk_id, _ in results]
+        from src.db.engine import async_session_factory
+
         stmt = (
             select(DocumentChunk, Document)
             .join(Document, DocumentChunk.document_id == Document.id)
             .where(DocumentChunk.id.in_(chunk_ids))
         )
-        result_rows = (await self._db.execute(stmt)).all()
+        async with async_session_factory() as session:
+            result_rows = (await session.execute(stmt)).all()
         chunk_map = {chunk.id: (chunk, doc) for chunk, doc in result_rows}
 
         raw_chunks = []
@@ -67,7 +70,7 @@ class RAGPipeline:
                 "distance": distance,
             })
 
-        reranked = await rerank(query, raw_chunks, top_n=self._settings.reranker.top_n)
+        reranked = rerank(query, raw_chunks, top_n=self._settings.reranker.top_n)
 
         if reranked:
             top_distance = reranked[0].get("distance", 0.0)
@@ -96,7 +99,7 @@ class RAGPipeline:
             {"content": c["content"], "title": c["title"], "url": c["url"]}
             for c in reranked
         ]
-        context_str = await build_context(
+        context_str = build_context(
             chunks_for_context, max_tokens=self._settings.retrieval.context_max_tokens,
         )
 
@@ -123,7 +126,7 @@ class RAGPipeline:
             if c.get("title")
         ]
 
-        async for session in self._db.get_async_session():
+        async with async_session_factory() as session:
             if conversation_id is None:
                 conv = Conversation(
                     user_id=user_id,
@@ -160,35 +163,36 @@ class RAGPipeline:
         from src.rag.embeddings import encode_documents
         from src.rag import chunker
         from src.db.vec import insert_embedding
+        from src.db.engine import async_session_factory
 
         stmt = select(Document).where(Document.id == document_id)
-        document = (await self._db.execute(stmt)).scalar_one_or_none()
-        if document is None:
-            return 0
+        async with async_session_factory() as session:
+            document = (await session.execute(stmt)).scalar_one_or_none()
+            if document is None:
+                return 0
 
-        chunks = await chunker.chunk_document(document.content)
+            chunks = chunker.chunk_document(document.content)
+            embeddings = encode_documents([c.content for c in chunks])
 
-        embeddings = await encode_documents([c["content"] for c in chunks])
+            count = 0
+            for i, (chunk_data, embedding) in enumerate(zip(chunks, embeddings)):
+                db_chunk = DocumentChunk(
+                    document_id=document_id,
+                    content=chunk_data.content,
+                    chunk_index=i,
+                )
+                session.add(db_chunk)
+                await session.flush()
 
-        count = 0
-        for i, (chunk_data, embedding) in enumerate(zip(chunks, embeddings)):
-            db_chunk = DocumentChunk(
-                document_id=document_id,
-                content=chunk_data["content"],
-                chunk_index=i,
-            )
-            self._db.add(db_chunk)
-            await self._db.flush()
+                insert_embedding(self._db, db_chunk.id, embedding)
+                count += 1
 
-            await insert_embedding(self._db, db_chunk.id, embedding)
-            count += 1
-
-        return count
+            await session.commit()
+            return count
 
     async def delete_document_vectors(self, chunk_ids: list[int]) -> None:
         from src.db.vec import delete_embeddings
-
-        await delete_embeddings(self._db, chunk_ids)
+        delete_embeddings(self._db, chunk_ids)
 
 
 _pipeline: RAGPipeline | None = None

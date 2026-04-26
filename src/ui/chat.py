@@ -131,7 +131,7 @@ async def _stream_response(state: ChatState, query: str):
 
             if final_result.confidence > 0 and not final_result.escalated:
                 state.conversation_id = await _persist_conversation(
-                    state, query, final_result
+                    state, query, final_result, user_id
                 )
         elif accumulated:
             state.messages[assistant_idx]["content"] = accumulated
@@ -158,7 +158,7 @@ async def _stream_response(state: ChatState, query: str):
 
 
 async def _persist_conversation(
-    state: ChatState, query: str, result: RAGResult,
+    state: ChatState, query: str, result: RAGResult, user_id: int,
 ) -> int | None:
     try:
         async with async_session_factory() as session:

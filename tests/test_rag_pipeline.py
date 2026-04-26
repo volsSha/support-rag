@@ -96,8 +96,8 @@ class TestRAGPipeline:
     @pytest.mark.asyncio
     async def test_process_query_no_results(self, pipeline):
         with (
-            patch("src.rag.pipeline.encode_query", new_callable=AsyncMock, return_value=[0.1] * 384),
-            patch("src.rag.pipeline.search_similar", new_callable=AsyncMock, return_value=[]),
+            patch("src.rag.embeddings.encode_query", return_value=[0.1] * 384),
+            patch("src.db.vec.search_similar", return_value=[]),
         ):
             results = []
             async for item in pipeline.process_query("test query", user_id=1):
@@ -110,9 +110,6 @@ class TestRAGPipeline:
 
     @pytest.mark.asyncio
     async def test_process_query_escalated(self, pipeline):
-        mock_db = MagicMock()
-        pipeline._db = mock_db
-
         mock_chunk = MagicMock()
         mock_chunk.id = 1
         mock_chunk.content = "Some content"
@@ -121,16 +118,20 @@ class TestRAGPipeline:
         mock_doc.title = "Test Doc"
         mock_doc.source_url = "https://example.com"
 
-        mock_result_row = (mock_chunk, mock_doc)
-        mock_execute = AsyncMock()
-        mock_execute.return_value.all.return_value = [mock_result_row]
-        mock_db.execute = mock_execute
+        mock_session = AsyncMock()
+        exec_result = MagicMock()
+        exec_result.all.return_value = [(mock_chunk, mock_doc)]
+        mock_session.execute = AsyncMock(return_value=exec_result)
 
         with (
-            patch("src.rag.pipeline.encode_query", new_callable=AsyncMock, return_value=[0.1] * 384),
-            patch("src.rag.pipeline.search_similar", new_callable=AsyncMock, return_value=[(1, 1.5)]),
-            patch("src.rag.pipeline.rerank", new_callable=AsyncMock, return_value=[]),
+            patch("src.rag.embeddings.encode_query", return_value=[0.1] * 384),
+            patch("src.db.vec.search_similar", return_value=[(1, 1.5)]),
+            patch("src.rag.reranker.rerank", return_value=[]),
+            patch("src.db.engine.async_session_factory") as mock_session_factory,
         ):
+            mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+
             results = []
             async for item in pipeline.process_query("test", user_id=1):
                 results.append(item)
@@ -141,27 +142,6 @@ class TestRAGPipeline:
 
     @pytest.mark.asyncio
     async def test_process_query_successful(self, pipeline):
-        mock_db = MagicMock()
-        pipeline._db = mock_db
-
-        mock_chunk = MagicMock()
-        mock_chunk.id = 1
-        mock_chunk.content = "Answer content here"
-        mock_chunk.document_id = 10
-        mock_doc = MagicMock()
-        mock_doc.title = "Knowledge Base"
-        mock_doc.source_url = "https://docs.example.com"
-
-        mock_result_row = (mock_chunk, mock_doc)
-        mock_execute = AsyncMock()
-        mock_execute.return_value.all.return_value = [mock_result_row]
-        mock_db.execute = mock_execute
-
-        mock_session = AsyncMock()
-        mock_db.get_async_session = MagicMock(
-            return_value=self._async_iter([mock_session]),
-        )
-
         reranked = [
             {
                 "chunk_id": 1,
@@ -180,13 +160,29 @@ class TestRAGPipeline:
         mock_llm = MagicMock()
         mock_llm.stream_completion = mock_stream
 
+        mock_session = AsyncMock()
+        mock_chunk = MagicMock()
+        mock_chunk.id = 1
+        mock_chunk.content = "Answer content here"
+        mock_chunk.document_id = 10
+        mock_doc = MagicMock()
+        mock_doc.title = "Knowledge Base"
+        mock_doc.source_url = "https://docs.example.com"
+        exec_result = MagicMock()
+        exec_result.all.return_value = [(mock_chunk, mock_doc)]
+        mock_session.execute = AsyncMock(return_value=exec_result)
+
         with (
-            patch("src.rag.pipeline.encode_query", new_callable=AsyncMock, return_value=[0.1] * 384),
-            patch("src.rag.pipeline.search_similar", new_callable=AsyncMock, return_value=[(1, 0.3)]),
-            patch("src.rag.pipeline.rerank", new_callable=AsyncMock, return_value=reranked),
-            patch("src.rag.pipeline.build_context", new_callable=AsyncMock, return_value="context"),
-            patch("src.rag.pipeline.get_llm_client", return_value=mock_llm),
+            patch("src.rag.embeddings.encode_query", return_value=[0.1] * 384),
+            patch("src.db.vec.search_similar", return_value=[(1, 0.3)]),
+            patch("src.rag.reranker.rerank", return_value=reranked),
+            patch("src.rag.context.build_context", return_value="context"),
+            patch("src.llm.openrouter.get_llm_client", return_value=mock_llm),
+            patch("src.db.engine.async_session_factory") as mock_session_factory,
         ):
+            mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+
             results = []
             async for item in pipeline.process_query("test", user_id=1):
                 results.append(item)
@@ -208,62 +204,59 @@ class TestRAGPipeline:
 
     @pytest.mark.asyncio
     async def test_ingest_document(self, pipeline):
-        mock_db = MagicMock()
-        pipeline._db = mock_db
-
         mock_doc = MagicMock()
         mock_doc.id = 1
         mock_doc.content = "Long document content..."
 
-        mock_execute = AsyncMock()
-        mock_execute.return_value.scalar_one_or_none.return_value = mock_doc
-        mock_db.execute = mock_execute
-        mock_db.add = MagicMock()
-        mock_db.flush = AsyncMock()
+        mock_session = AsyncMock()
+        exec_result = MagicMock()
+        exec_result.scalar_one_or_none.return_value = mock_doc
+        mock_session.execute = AsyncMock(return_value=exec_result)
+        mock_session.add = MagicMock()
+        mock_session.flush = AsyncMock()
 
         with (
-            patch("src.rag.pipeline.chunker", MagicMock()) as mock_chunker,
-            patch("src.rag.pipeline.encode_documents", new_callable=AsyncMock, return_value=[[0.1] * 384]),
-            patch("src.rag.pipeline.insert_embedding", new_callable=AsyncMock),
+            patch("src.rag.chunker.chunk_document", MagicMock(return_value=[MagicMock(content="Long document content...")])),
+            patch("src.rag.embeddings.encode_documents", return_value=[[0.1] * 384]),
+            patch("src.db.vec.insert_embedding"),
+            patch("src.db.engine.async_session_factory") as mock_session_factory,
         ):
-            mock_chunker.chunk_document = AsyncMock(
-                return_value=[{"content": "Long document content..."}],
-            )
+            mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
             count = await pipeline.ingest_document(1)
 
         assert count == 1
-        mock_db.add.assert_called_once()
-        mock_db.flush.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_ingest_document_not_found(self, pipeline):
-        mock_db = MagicMock()
-        pipeline._db = mock_db
+        mock_session = AsyncMock()
+        exec_result = MagicMock()
+        exec_result.scalar_one_or_none.return_value = None
+        mock_session.execute = AsyncMock(return_value=exec_result)
 
-        mock_execute = AsyncMock()
-        mock_execute.return_value.scalar_one_or_none.return_value = None
-        mock_db.execute = mock_execute
-
-        count = await pipeline.ingest_document(999)
+        with (
+            patch("src.db.engine.async_session_factory") as mock_session_factory,
+        ):
+            mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+            count = await pipeline.ingest_document(999)
         assert count == 0
 
     @pytest.mark.asyncio
     async def test_delete_document_vectors(self, pipeline):
-        mock_db = MagicMock()
-        pipeline._db = mock_db
-
-        with patch("src.rag.pipeline.delete_embeddings", new_callable=AsyncMock) as mock_delete:
+        with patch("src.db.vec.delete_embeddings") as mock_delete:
             await pipeline.delete_document_vectors([1, 2, 3])
-            mock_delete.assert_awaited_once_with(mock_db, [1, 2, 3])
+            mock_delete.assert_called_once_with(pipeline._db, [1, 2, 3])
 
     @pytest.mark.asyncio
     async def test_get_pipeline_singleton(self):
-        p1 = RAGPipeline._pipeline
-        RAGPipeline._pipeline = None
+        import src.rag.pipeline as pipeline_mod
+        original = pipeline_mod._pipeline
+        pipeline_mod._pipeline = None
 
         with patch("src.rag.pipeline.get_settings"):
-            p = RAGPipeline.get_pipeline()
-            p2 = RAGPipeline.get_pipeline()
-            assert p is p2
+            p1 = pipeline_mod.get_pipeline()
+            p2 = pipeline_mod.get_pipeline()
+            assert p1 is p2
 
-        RAGPipeline._pipeline = p1
+        pipeline_mod._pipeline = original

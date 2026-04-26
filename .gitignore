@@ -18,3 +18,4 @@ data/*.db-shm
 .ruff_cache/
 htmlcov/
 .coverage
+/docs/plans/
