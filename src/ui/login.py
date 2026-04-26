@@ -35,13 +35,6 @@ def create_login_page():
                     on_click=lambda: _do_login(username_input, password_input, redirect_to),
                 ).props("unelevated color=primary").classes("w-full mb-3")
 
-                ui.separator().classes("my-4")
-
-                ui.button(
-                    "Register",
-                    on_click=lambda: _do_register(username_input, password_input, redirect_to),
-                ).props("flat color=primary").classes("w-full")
-
     return login_page
 
 
@@ -72,36 +65,3 @@ async def _do_login(username_input, password_input, redirect_to: str):
         ui.notify("Connection error. Is the server running?", color="negative")
 
 
-async def _do_register(username_input, password_input, redirect_to: str):
-    username = username_input.value
-    password = password_input.value
-
-    if not username or not password:
-        ui.notify("Username and password are required", color="negative")
-        return
-
-    try:
-        import httpx
-        settings = get_settings()
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{settings.app_url}/api/auth/register",
-                json={"username": username, "password": password},
-            )
-            if resp.status_code == 201:
-                login_resp = await client.post(
-                    f"{settings.app_url}/api/auth/login",
-                    json={"username": username, "password": password},
-                )
-                if login_resp.status_code == 200:
-                    token = login_resp.json().get("access_token", "")
-                    if token:
-                        ui.run_javascript(
-                            f"document.cookie = 'token={token}; path=/; max-age=86400';"
-                        )
-                        ui.navigate.to(redirect_to)
-                        return
-            detail = resp.json().get("detail", "Registration failed")
-            ui.notify(detail, color="negative")
-    except Exception:
-        ui.notify("Connection error. Is the server running?", color="negative")
