@@ -5,7 +5,6 @@ description = "Support RAG system with NiceGUI, sentence-transformers, and OpenR
 requires-python = ">=3.12"
 dependencies = [
     "nicegui>=2.7.0",
-    "sentence-transformers>=3.0.0",
     "sqlite-vec>=0.1.6",
     "sqlalchemy[asyncio]>=2.0.30",
     "aiosqlite>=0.20.0",
