@@ -21,7 +21,8 @@ async_engine = create_async_engine(
     echo=False,
 )
 
-event.listen(async_engine.sync_engine, "connect", _set_sqlite_pragma)
+if get_settings().database.url.startswith("sqlite"):
+    event.listen(async_engine.sync_engine, "connect", _set_sqlite_pragma)
 
 async_session_factory = async_sessionmaker(
     bind=async_engine,
