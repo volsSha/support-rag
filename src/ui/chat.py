@@ -84,6 +84,7 @@ async def _stream_response(state: ChatState, query: str):
     try:
         pipeline = get_pipeline()
         settings = get_settings()
+        user_id = app.storage.user.get("user_id", 1)
 
         assistant_idx = len(state.messages)
         state.messages.append({
@@ -99,7 +100,7 @@ async def _stream_response(state: ChatState, query: str):
 
         async for item in pipeline.process_query(
             query,
-            user_id=1,
+            user_id=user_id,
             conversation_id=state.conversation_id,
         ):
             if isinstance(item, str):
@@ -161,7 +162,7 @@ async def _persist_conversation(
 ) -> int | None:
     try:
         async with async_session_factory() as session:
-            conv = Conversation(user_id=1, title=query[:100])
+            conv = Conversation(user_id=user_id, title=query[:100])
             session.add(conv)
             await session.flush()
             conv_id = conv.id
@@ -310,9 +311,17 @@ async def create_chat_page():
         with splitter.after:
             with ui.column().classes("w-full h-full"):
                 with ui.header().classes("w-full").props("elevated"):
-                    ui.label(get_settings().app_name).classes(
-                        "text-lg font-bold"
-                    )
+                    ui.link("Chat", "/").classes("text-white mr-4").props("color=white")
+                    is_admin = app.storage.user.get("is_admin", False)
+                    if is_admin:
+                        ui.link("Admin", "/admin").classes("text-white mr-4").props("color=white")
+                    ui.space()
+                    ui.button(
+                        "Logout", on_click=lambda: (
+                            ui.run_javascript('document.cookie="access_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/"'),
+                            ui.navigate.to("/login"),
+                        )
+                    ).props("flat color=white size=sm")
 
                 with ui.scroll_area().classes("flex-grow w-full").props(
                     'id="message-area"'
