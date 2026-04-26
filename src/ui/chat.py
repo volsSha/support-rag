@@ -1,6 +1,6 @@
 import logging
 
-from nicegui import background_tasks, ui
+from nicegui import app, background_tasks, ui
 
 from src.config import get_settings
 from src.db.engine import async_session_factory
@@ -292,6 +292,7 @@ async def _switch_conversation(state: ChatState, conv_id: int):
         ui.notify("Failed to load conversation", color="negative")
 
 
+@ui.page("/")
 async def create_chat_page():
     inject_global_styles()
 

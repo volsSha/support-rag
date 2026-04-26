@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from nicegui import app, ui
+from nicegui import app, background_tasks, ui
 
 from src.services.documents import create_document, delete_document, get_all_documents, ingest_document
 
 CATEGORIES = ["FAQ", "Guide", "API Reference", "Troubleshooting", "Other"]
 
 
-def create_admin_page():
+@ui.page("/admin")
+async def create_admin_page():
     from src.ui.styles import inject_global_styles
     inject_global_styles()
 
@@ -74,7 +75,7 @@ def create_admin_page():
 
     empty_container = ui.column().classes("w-full")
 
-    await refresh_table()
+    background_tasks.create(refresh_table())
 
 
 def _open_add_dialog():

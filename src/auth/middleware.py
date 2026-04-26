@@ -1,13 +1,14 @@
 from datetime import timedelta
 
-from fastapi import APIRouter, BaseHTTPMiddleware, Request, Response
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from nicegui import app, ui
 
 from src.auth.jwt import create_access_token, decode_access_token
 from src.auth.passwords import verify_password
 from src.config import get_settings
-from src.db.engine import async_session
+from src.db.engine import async_session_factory
 from src.db.models import User
 
 PUBLIC_PATHS = {"/login", "/_nicegui", "/api/auth/login", "/api/auth/logout", "/api/auth/register"}
@@ -41,7 +42,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         request.state.user_id_int = int(user_id_str)
 
         try:
-            async with async_session() as session:
+            async with async_session_factory() as session:
                 user = await session.get(User, request.state.user_id_int)
                 if user is None:
                     return self._deny(request)
@@ -78,7 +79,7 @@ async def login(request: Request, response: Response):
     username = body.get("username", "")
     password = body.get("password", "")
 
-    async with async_session() as session:
+    async with async_session_factory() as session:
         from sqlalchemy import select
 
         stmt = select(User).where(User.username == username)
@@ -137,7 +138,7 @@ async def register(request: Request, response: Response):
 
     hashed = hash_password(password)
 
-    async with async_session() as session:
+    async with async_session_factory() as session:
         from sqlalchemy import select
 
         existing = await session.execute(select(User).where(User.username == username))

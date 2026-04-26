@@ -1,7 +1,6 @@
 import asyncio
 import os
 import sqlite3
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 from alembic.config import Config as AlembicConfig
@@ -20,8 +19,7 @@ from src.ui.chat import create_chat_page
 from src.ui.login import create_login_page
 
 
-@asynccontextmanager
-async def lifespan():
+async def on_startup() -> None:
     settings = get_settings()
 
     os.makedirs("data", exist_ok=True)
@@ -50,16 +48,17 @@ async def lifespan():
 
     print(f"\n{settings.app_name} is ready at {settings.app_url}\n")
 
-    yield
+ 
 
+async def on_shutdown() -> None:
     await async_engine.dispose()
 
 
 create_login_page()
-create_chat_page()
-create_admin_page()
 
 app.add_middleware(AuthMiddleware)
+app.on_startup(on_startup)
+app.on_shutdown(on_shutdown)
 
 settings = get_settings()
 ui.run(
@@ -69,5 +68,4 @@ ui.run(
     reload=settings.debug,
     host="0.0.0.0",
     show=False,
-    lifespan=lifespan,
 )
