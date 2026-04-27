@@ -12,6 +12,13 @@ class RAGResult(BaseModel):
     sources: list[Source]
     confidence: float
     escalated: bool
+    conversation_id: int | None = None
+
+
+class ThinkEvent(BaseModel):
+    stage: str
+    message: str
+    details: dict | None = None
 
 
 def compute_confidence(

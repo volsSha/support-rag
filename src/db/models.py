@@ -83,6 +83,9 @@ class Conversation(Base):
 
     user: Mapped["User"] = relationship(back_populates="conversations")
     messages: Mapped[list["Message"]] = relationship(back_populates="conversation")
+    llm_interactions: Mapped[list["LLMInteractionLog"]] = relationship(
+        back_populates="conversation",
+    )
 
 
 class Message(Base):
@@ -100,3 +103,30 @@ class Message(Base):
     )
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+
+
+class LLMInteractionLog(Base):
+    __tablename__ = "llm_interaction_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    conversation_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("conversations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    user_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    request_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    stage: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime, default=datetime.datetime.utcnow, nullable=False,
+    )
+
+    conversation: Mapped["Conversation | None"] = relationship(
+        back_populates="llm_interactions",
+    )

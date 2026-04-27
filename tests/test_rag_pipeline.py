@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.rag.safety import RAGResult, Source, compute_confidence
+from src.rag.safety import RAGResult, Source, ThinkEvent, compute_confidence
 from src.rag.pipeline import RAGPipeline
 
 
@@ -103,10 +103,12 @@ class TestRAGPipeline:
             async for item in pipeline.process_query("test query", user_id=1):
                 results.append(item)
 
-        assert len(results) == 1
-        assert isinstance(results[0], RAGResult)
-        assert results[0].escalated is True
-        assert results[0].confidence == 0.0
+        rag_results = [r for r in results if isinstance(r, RAGResult)]
+        think_events = [r for r in results if isinstance(r, ThinkEvent)]
+        assert len(rag_results) == 1
+        assert rag_results[0].escalated is True
+        assert rag_results[0].confidence == 0.0
+        assert len(think_events) >= 1
 
     @pytest.mark.asyncio
     async def test_process_query_escalated(self, pipeline):
@@ -119,6 +121,7 @@ class TestRAGPipeline:
         mock_doc.source_url = "https://example.com"
 
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         exec_result = MagicMock()
         exec_result.all.return_value = [(mock_chunk, mock_doc)]
         mock_session.execute = AsyncMock(return_value=exec_result)
@@ -136,9 +139,11 @@ class TestRAGPipeline:
             async for item in pipeline.process_query("test", user_id=1):
                 results.append(item)
 
-        assert len(results) == 1
-        assert isinstance(results[0], RAGResult)
-        assert results[0].escalated is True
+        rag_results = [r for r in results if isinstance(r, RAGResult)]
+        think_events = [r for r in results if isinstance(r, ThinkEvent)]
+        assert len(rag_results) == 1
+        assert rag_results[0].escalated is True
+        assert len(think_events) >= 1
 
     @pytest.mark.asyncio
     async def test_process_query_successful(self, pipeline):
@@ -161,6 +166,7 @@ class TestRAGPipeline:
         mock_llm.stream_completion = mock_stream
 
         mock_session = AsyncMock()
+        mock_session.add = MagicMock()
         mock_chunk = MagicMock()
         mock_chunk.id = 1
         mock_chunk.content = "Answer content here"
@@ -187,13 +193,16 @@ class TestRAGPipeline:
             async for item in pipeline.process_query("test", user_id=1):
                 results.append(item)
 
-        assert len(results) == 3
-        assert results[0] == "Hello"
-        assert results[1] == " world"
-        assert isinstance(results[2], RAGResult)
-        assert results[2].answer == "Hello world"
-        assert results[2].escalated is False
-        assert len(results[2].sources) == 1
+        token_results = [r for r in results if isinstance(r, str)]
+        rag_results = [r for r in results if isinstance(r, RAGResult)]
+        think_events = [r for r in results if isinstance(r, ThinkEvent)]
+
+        assert token_results == ["Hello", " world"]
+        assert len(rag_results) == 1
+        assert rag_results[0].answer == "Hello world"
+        assert rag_results[0].escalated is False
+        assert len(rag_results[0].sources) == 1
+        assert len(think_events) >= 1
 
     @staticmethod
     def _async_iter(items):

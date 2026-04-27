@@ -6,7 +6,7 @@ from nicegui import app, background_tasks, ui
 from src.db.engine import async_session_factory
 from src.db.models import Conversation, Message
 from src.rag.pipeline import get_pipeline
-from src.rag.safety import RAGResult, Source
+from src.rag.safety import RAGResult, Source, ThinkEvent
 from src.ui.styles import apply_dark_mode, inject_global_styles, toggle_dark_mode
 
 logger = logging.getLogger(__name__)
@@ -18,6 +18,22 @@ class ChatState:
         self.is_streaming: bool = False
         self.conversation_id: int | None = None
         self.streaming_error: str | None = None
+
+
+def _build_think_html(think_events: list[dict]) -> str:
+    if not think_events:
+        return ""
+    items: list[str] = []
+    for event in think_events:
+        stage = str(event.get("stage", "step")).upper()
+        message = str(event.get("message", ""))
+        items.append(
+            '<div class="think-step">'
+            f'<span class="think-stage">{stage}</span>'
+            f'<span class="think-message">{message}</span>'
+            "</div>"
+        )
+    return '<div class="think-container">' + "".join(items) + "</div>"
 
 
 def _build_sources_html(sources: list[Source]) -> str:
@@ -64,6 +80,9 @@ async def message_list(state: ChatState):
                                 "chat-bubble-assistant rounded-xl px-4 py-2 text-sm "
                                 "break-words"
                             )
+                        think_events = msg.get("think_events")
+                        if think_events:
+                            ui.html(_build_think_html(think_events))
                         sources = msg.get("sources")
                         if sources:
                             ui.html(_build_sources_html(sources))
@@ -83,10 +102,16 @@ async def message_list(state: ChatState):
 
 
 async def _scroll_to_bottom():
-    await ui.run_javascript(
-        "const el = document.getElementById('message-area'); "
-        "if (el) el.scrollTop = el.scrollHeight;"
-    )
+    try:
+        await asyncio.wait_for(
+            ui.run_javascript(
+                "const el = document.getElementById('message-area'); "
+                "if (el) el.scrollTop = el.scrollHeight;"
+            ),
+            timeout=1.5,
+        )
+    except Exception:
+        logger.debug("Skipping scroll update", exc_info=True)
 
 
 async def _stream_response(state: ChatState, query: str):
@@ -102,6 +127,7 @@ async def _stream_response(state: ChatState, query: str):
             "content": "",
             "sources": [],
             "escalated": False,
+            "think_events": [],
         })
         message_list.refresh()
 
@@ -130,16 +156,28 @@ async def _stream_response(state: ChatState, query: str):
                 state.messages[assistant_idx]["content"] = accumulated
                 message_list.refresh()
                 await _scroll_to_bottom()
+            elif isinstance(item, ThinkEvent):
+                state.messages[assistant_idx].setdefault("think_events", []).append(
+                    {
+                        "stage": item.stage,
+                        "message": item.message,
+                        "details": item.details or {},
+                    },
+                )
+                message_list.refresh()
+                await _scroll_to_bottom()
             elif isinstance(item, RAGResult):
                 final_result = item
 
         if final_result:
+            think_events = state.messages[assistant_idx].get("think_events", [])
             if final_result.escalated:
                 state.messages[assistant_idx] = {
                     "role": "assistant",
                     "content": final_result.answer,
                     "sources": [],
                     "escalated": True,
+                    "think_events": think_events,
                 }
             else:
                 state.messages[assistant_idx] = {
@@ -147,14 +185,13 @@ async def _stream_response(state: ChatState, query: str):
                     "content": final_result.answer or accumulated,
                     "sources": final_result.sources,
                     "escalated": False,
+                    "think_events": think_events,
                 }
                 if final_result.answer and accumulated:
                     state.messages[assistant_idx]["content"] = final_result.answer
 
-            if final_result.confidence > 0 and not final_result.escalated:
-                state.conversation_id = await _persist_conversation(
-                    state, query, final_result, user_id
-                )
+            if final_result.conversation_id:
+                state.conversation_id = final_result.conversation_id
         elif accumulated:
             state.messages[assistant_idx]["content"] = accumulated
 
@@ -191,34 +228,6 @@ async def _stream_response(state: ChatState, query: str):
 
     finally:
         state.is_streaming = False
-
-
-async def _persist_conversation(
-    state: ChatState, query: str, result: RAGResult, user_id: int,
-) -> int | None:
-    try:
-        async with async_session_factory() as session:
-            conv = Conversation(user_id=user_id, title=query[:100])
-            session.add(conv)
-            await session.flush()
-            conv_id = conv.id
-
-            session.add(Message(
-                conversation_id=conv_id,
-                role="user",
-                content=query,
-            ))
-            session.add(Message(
-                conversation_id=conv_id,
-                role="assistant",
-                content=result.answer,
-                sources_json=result.model_dump_json(include={"sources"}),
-            ))
-            await session.commit()
-            return conv_id
-    except Exception:
-        logger.exception("Failed to persist conversation")
-        return None
 
 
 async def _create_new_conversation(state: ChatState):
@@ -311,6 +320,7 @@ async def _switch_conversation(state: ChatState, conv_id: int):
                 "content": msg.content,
                 "sources": [],
                 "escalated": False,
+                "think_events": [],
             }
             if msg.sources_json:
                 try:

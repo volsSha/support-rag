@@ -58,6 +58,32 @@ def inject_global_styles():
             background-color: #dbeafe;
             text-decoration: none;
         }
+        .think-container {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin: 2px 0;
+        }
+        .think-step {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.75rem;
+            color: #4b5563;
+            background-color: #f9fafb;
+            border: 1px dashed #d1d5db;
+            border-radius: 8px;
+            padding: 4px 8px;
+            width: fit-content;
+            max-width: 100%;
+        }
+        .think-stage {
+            font-weight: 600;
+            color: #1d4ed8;
+        }
+        .think-message {
+            word-break: break-word;
+        }
         /* Dark mode styles */
         .dark body {
             background-color: #111827;
@@ -95,6 +121,14 @@ def inject_global_styles():
         .dark .q-header, .dark .q-footer {
             background-color: #1f2937 !important;
             color: #f9fafb !important;
+        }
+        .dark .think-step {
+            color: #e5e7eb;
+            background-color: #1f2937;
+            border-color: #4b5563;
+        }
+        .dark .think-stage {
+            color: #93c5fd;
         }
         .dark .q-splitter__separator {
             background-color: #374151 !important;

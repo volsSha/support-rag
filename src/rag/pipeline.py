@@ -2,12 +2,20 @@ from collections.abc import AsyncGenerator
 import json
 import logging
 import math
+from uuid import uuid4
 
 from sqlalchemy import select
 
 from src.config import get_settings
-from src.db.models import ChunkEmbedding, Conversation, Document, DocumentChunk, Message
-from src.rag.safety import RAGResult, Source, compute_confidence
+from src.db.models import (
+    ChunkEmbedding,
+    Conversation,
+    Document,
+    DocumentChunk,
+    LLMInteractionLog,
+    Message,
+)
+from src.rag.safety import RAGResult, Source, ThinkEvent, compute_confidence
 
 logger = logging.getLogger(__name__)
 
@@ -22,23 +30,43 @@ class RAGPipeline:
         query: str,
         user_id: int,
         conversation_id: int | None = None,
-    ) -> AsyncGenerator[RAGResult | str, None]:
-        from src.rag.context import build_context
+    ) -> AsyncGenerator[RAGResult | str | ThinkEvent, None]:
+        from src.rag.context import RetrievedChunk, build_context
         from src.rag.embeddings import encode_query
         from src.rag.reranker import rerank
         from src.llm.openrouter import SYSTEM_PROMPT, get_llm_client
         from src.db.engine import async_session_factory
 
+        request_id = uuid4().hex
+
+        async def emit_think(stage: str, message: str, details: dict | None = None):
+            event = ThinkEvent(stage=stage, message=message, details=details)
+            self._schedule_log_interaction(
+                request_id=request_id,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                stage=stage,
+                event_type="think",
+                payload={"message": message, "details": details or {}},
+            )
+            return event
+
+        yield await emit_think("embedding", "Creating query embedding")
+
         query_vector = encode_query(query)
+        yield await emit_think("embedding", "Embedding ready")
 
         results: list[tuple[int, float]] = []
         if self._db is not None:
             from src.db.vec import search_similar
 
+            yield await emit_think("retrieval", "Searching vector index")
+
             results = search_similar(
                 self._db, query_vector, top_k=self._settings.reranker.top_k,
             )
         else:
+            yield await emit_think("retrieval", "Searching chunk embeddings")
             async with async_session_factory() as session:
                 emb_stmt = select(ChunkEmbedding)
                 embeddings = (await session.execute(emb_stmt)).scalars().all()
@@ -55,13 +83,21 @@ class RAGPipeline:
             results.sort(key=lambda x: x[1])
             results = results[: self._settings.reranker.top_k]
 
+        yield await emit_think(
+            "retrieval",
+            f"Retrieved {len(results)} candidate chunks",
+            {"candidate_count": len(results)},
+        )
+
         if not results:
+            yield await emit_think("decision", "No relevant chunks found, escalating")
             yield RAGResult(
                 answer="I couldn't find any relevant information for your question. "
                       "I'm escalating this to a human support agent who can help you.",
                 sources=[],
                 confidence=0.0,
                 escalated=True,
+                conversation_id=conversation_id,
             )
             return
 
@@ -89,7 +125,13 @@ class RAGPipeline:
                 "distance": distance,
             })
 
+        yield await emit_think("rerank", "Reranking candidate chunks")
         reranked = rerank(query, raw_chunks, top_n=self._settings.reranker.top_n)
+        yield await emit_think(
+            "rerank",
+            f"Selected {len(reranked)} chunks for context",
+            {"selected_count": len(reranked)},
+        )
 
         if reranked:
             top_distance = reranked[0].get("distance", 0.0)
@@ -103,30 +145,62 @@ class RAGPipeline:
             top_distance,
             self._settings.retrieval.similarity_threshold,
         )
+        yield await emit_think(
+            "decision",
+            "Confidence computed",
+            {
+                "confidence": confidence,
+                "top_distance": top_distance,
+                "top_score": top_score,
+                "escalated": escalated,
+            },
+        )
 
         if escalated:
+            yield await emit_think("decision", "Low confidence, escalating to human")
             yield RAGResult(
                 answer="Your question may require human review. "
                       "I'm escalating this to a support agent.",
                 sources=[],
                 confidence=confidence,
                 escalated=True,
+                conversation_id=conversation_id,
             )
             return
 
         chunks_for_context = [
-            {"content": c["content"], "title": c["title"], "url": c["url"]}
+            RetrievedChunk(
+                chunk_id=c["chunk_id"],
+                content=c["content"],
+                document_title=c.get("title", ""),
+                source_url=c.get("url"),
+                rerank_score=c.get("rerank_score", 0.0),
+                distance=c.get("distance", 0.0),
+            )
             for c in reranked
         ]
         context_str = build_context(
             chunks_for_context, max_tokens=self._settings.retrieval.context_max_tokens,
         )
+        yield await emit_think("context", "Built context for LLM prompt")
 
         llm = get_llm_client()
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": f"Context:\n{context_str}\n\nQuestion: {query}"},
         ]
+        self._schedule_log_interaction(
+            request_id=request_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            stage="llm",
+            event_type="llm_request",
+            payload={
+                "model": getattr(llm, "_model", None),
+                "messages": messages,
+            },
+        )
+        yield await emit_think("llm", "Sending prompt to LLM")
 
         answer_parts: list[str] = []
         async for token in llm.stream_completion(messages):
@@ -134,6 +208,19 @@ class RAGPipeline:
             yield token
 
         answer = "".join(answer_parts)
+        self._schedule_log_interaction(
+            request_id=request_id,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            stage="llm",
+            event_type="llm_response",
+            payload={
+                "answer": answer,
+                "token_count": len(answer_parts),
+                "usage": getattr(llm, "last_usage", None),
+            },
+        )
+        yield await emit_think("llm", "Received LLM response")
 
         sources = [
             Source(
@@ -145,6 +232,7 @@ class RAGPipeline:
             if c.get("title")
         ]
 
+        yield await emit_think("storage", "Saving conversation and messages")
         async with async_session_factory() as session:
             if conversation_id is None:
                 conv = Conversation(
@@ -171,12 +259,65 @@ class RAGPipeline:
             session.add(assistant_msg)
             await session.commit()
 
+        yield await emit_think("storage", "Conversation saved")
+
         yield RAGResult(
             answer=answer,
             sources=sources,
             confidence=confidence,
             escalated=False,
+            conversation_id=conversation_id,
         )
+
+    async def _log_interaction(
+        self,
+        request_id: str,
+        user_id: int | None,
+        conversation_id: int | None,
+        stage: str,
+        event_type: str,
+        payload: dict,
+    ) -> None:
+        from src.db.engine import async_session_factory
+
+        try:
+            async with async_session_factory() as session:
+                session.add(
+                    LLMInteractionLog(
+                        conversation_id=conversation_id,
+                        user_id=user_id,
+                        request_id=request_id,
+                        stage=stage,
+                        event_type=event_type,
+                        payload_json=json.dumps(payload, ensure_ascii=True),
+                    ),
+                )
+                await session.commit()
+        except Exception:
+            logger.exception("Failed to persist LLM interaction log")
+
+    def _schedule_log_interaction(
+        self,
+        request_id: str,
+        user_id: int | None,
+        conversation_id: int | None,
+        stage: str,
+        event_type: str,
+        payload: dict,
+    ) -> None:
+        import asyncio
+
+        task = asyncio.create_task(
+            self._log_interaction(
+                request_id=request_id,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                stage=stage,
+                event_type=event_type,
+                payload=payload,
+            ),
+        )
+        task.add_done_callback(lambda _: None)
 
     async def ingest_document(self, document_id: int) -> int:
         from src.rag.embeddings import encode_documents
