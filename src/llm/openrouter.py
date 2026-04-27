@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator
 
 import httpx
 from openai import AsyncOpenAI
+from openai import APIConnectionError, APITimeoutError
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -20,6 +21,7 @@ class OpenRouterClient:
         self._model = settings.openrouter.default_model
         self._max_tokens = settings.openrouter.max_tokens
         self._temperature = settings.openrouter.temperature
+        self._request_timeout_seconds = settings.openrouter.request_timeout_seconds
         self.last_usage: dict | None = None
 
         self._client = AsyncOpenAI(
@@ -34,7 +36,9 @@ class OpenRouterClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((httpx.TimeoutException, httpx.HTTPStatusError)),
+        retry=retry_if_exception_type(
+            (httpx.TimeoutException, httpx.HTTPStatusError, APIConnectionError, APITimeoutError)
+        ),
     )
     async def stream_completion(
         self,
@@ -48,6 +52,7 @@ class OpenRouterClient:
             max_tokens=self._max_tokens,
             temperature=self._temperature,
             stream=True,
+            timeout=self._request_timeout_seconds,
         )
         async for chunk in response:
             if chunk.choices and chunk.choices[0].delta.content:
@@ -58,7 +63,9 @@ class OpenRouterClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((httpx.TimeoutException, httpx.HTTPStatusError)),
+        retry=retry_if_exception_type(
+            (httpx.TimeoutException, httpx.HTTPStatusError, APIConnectionError, APITimeoutError)
+        ),
     )
     async def complete(
         self,
@@ -71,6 +78,7 @@ class OpenRouterClient:
             messages=messages,
             max_tokens=self._max_tokens,
             temperature=self._temperature,
+            timeout=self._request_timeout_seconds,
         )
         if response.usage:
             self.last_usage = response.usage.model_dump()
