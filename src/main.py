@@ -15,7 +15,6 @@ from src.ui.admin import create_admin_page
 from src.ui.chat import create_chat_page
 from src.ui.login import create_login_page
 
-
 async def on_startup() -> None:
     settings = get_settings()
 
@@ -39,11 +38,9 @@ async def on_startup() -> None:
 
     print(f"\n{settings.app_name} is ready at {settings.app_url}\n")
 
- 
 
 async def on_shutdown() -> None:
     await async_engine.dispose()
-
 
 create_login_page()
 
@@ -59,5 +56,5 @@ ui.run(
     port=port,
     reload=settings.debug,
     host="0.0.0.0",
-    show=False,
+    show=settings.debug,
 )

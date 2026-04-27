@@ -9,15 +9,19 @@ CATEGORIES = ["FAQ", "Guide", "API Reference", "Troubleshooting", "Other"]
 
 @ui.page("/admin")
 async def create_admin_page():
-    from src.ui.styles import inject_global_styles
+    from src.ui.styles import apply_dark_mode, inject_global_styles, toggle_dark_mode
     inject_global_styles()
+    await apply_dark_mode()
 
     is_admin = app.storage.user.get("is_admin", False)
     if not is_admin:
         ui.label("Access denied. Admin role required.").classes("text-red-500 text-lg mt-10")
         return
 
-    ui.label("Document Management").classes("text-3xl font-bold mb-6")
+    with ui.row().classes("w-full items-center justify-between mb-4"):
+        ui.label("Document Management").classes("text-3xl font-bold")
+        dark_icon = "light_mode" if app.storage.user.get("dark_mode", False) else "dark_mode"
+        ui.button(icon=dark_icon, on_click=toggle_dark_mode).props("flat")
 
     ui.button("Add Document", icon="add", on_click=lambda: _open_add_dialog()).props("color=primary")
 

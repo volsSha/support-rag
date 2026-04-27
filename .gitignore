@@ -20,3 +20,6 @@ htmlcov/
 .coverage
 /docs/plans/
 .nicegui/
+/.context/
+/docs/solutions/
+/docs/residual-review-findings/

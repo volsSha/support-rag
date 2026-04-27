@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from nicegui import ui
+from nicegui import app, ui
 from sqlalchemy import select
 
 from src.auth.jwt import create_access_token
@@ -8,13 +8,14 @@ from src.auth.passwords import verify_password
 from src.config import get_settings
 from src.db.engine import async_session_factory
 from src.db.models import User
-from src.ui.styles import inject_global_styles
+from src.ui.styles import apply_dark_mode, inject_global_styles, toggle_dark_mode
 
 
 def create_login_page():
     @ui.page("/login")
     async def login_page():
         inject_global_styles()
+        await apply_dark_mode()
         settings = get_settings()
         request = getattr(ui.context.client, "request", None)
         redirect_to = "/"
@@ -22,11 +23,18 @@ def create_login_page():
             redirect_to = request.query_params.get("redirect_to", "/")
 
         with ui.column().classes(
-            "w-full min-h-screen flex items-center justify-center bg-gray-50"
+            "w-full min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900"
         ):
-            with ui.card().classes("w-full max-w-sm p-8 shadow-lg"):
-                ui.label(settings.app_name).classes("text-2xl font-bold text-center text-gray-800 mb-2")
-                ui.label("Sign in to your account").classes("text-sm text-center text-gray-500 mb-6")
+            with ui.card().classes("w-full max-w-sm p-8 shadow-lg bg-white dark:bg-gray-800"):
+                with ui.row().classes("w-full justify-end"):
+                    dark_icon = "light_mode" if app.storage.user.get("dark_mode", False) else "dark_mode"
+                    ui.button(icon=dark_icon, on_click=toggle_dark_mode).props("flat")
+                ui.label(settings.app_name).classes(
+                    "text-2xl font-bold text-center text-gray-800 dark:text-gray-100 mb-2"
+                )
+                ui.label("Sign in to your account").classes(
+                    "text-sm text-center text-gray-500 dark:text-gray-300 mb-6"
+                )
 
                 username_input = ui.input(
                     "Username", placeholder="Enter your username"
