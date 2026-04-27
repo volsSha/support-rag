@@ -427,6 +427,7 @@ def _on_submit(state: ChatState, text_input: ui.input, send_button: ui.button):
     message_list.refresh()
 
     async def _after_stream():
+        print(f"[CHAT] _after_stream: is_streaming={state.is_streaming}", flush=True)
         await _scroll_to_bottom()
         send_button.enable()
         text_input.enable()
@@ -449,4 +450,6 @@ def _on_submit(state: ChatState, text_input: ui.input, send_button: ui.button):
             print(f"[CHAT] _task finally: is_streaming={state.is_streaming}", flush=True)
             await _after_stream()
 
-    background_tasks.create(_task)
+    import asyncio
+    task = asyncio.create_task(_task(), name="chat-stream")
+    print(f"[CHAT] background task created: {task}", flush=True)
