@@ -70,7 +70,7 @@ async def _do_login(username_input, password_input, redirect_to: str):
             expires_delta=timedelta(minutes=settings.auth.jwt_expire_minutes),
         )
 
-        ui.run_javascript(
+        await ui.run_javascript(
             f"document.cookie = 'access_token={token}; path=/; max-age={settings.auth.jwt_expire_minutes * 60}; SameSite=Lax';"
         )
         ui.navigate.to(redirect_to)
