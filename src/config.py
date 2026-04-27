@@ -75,7 +75,7 @@ class RerankerSettings(BaseSettings):
 class RetrievalSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="RETRIEVAL_")
 
-    similarity_threshold: float = 0.7
+    similarity_threshold: float = 0.3
     context_max_tokens: int = 3000
 
 

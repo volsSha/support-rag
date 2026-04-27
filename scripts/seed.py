@@ -58,26 +58,53 @@ SAMPLE_DOCUMENTS = [
         "title": "API Integration",
         "source_url": "https://docs.support-rag.local/api-integration",
         "content": (
-            "Everything you need to know about our API:\n\n"
-            "Q: How do I get an API key?\n"
+            "API Integration Guide:\n\n"
+            "Q: What is API Integration?\n"
+            "A: API Integration allows you to connect your applications with our platform. "
+            "You can authenticate requests, manage keys, and configure webhooks.\n\n"
+            "Q: How do I get an API key for API Integration?\n"
             "A: Navigate to Settings > API Keys and click 'Generate New Key'. "
-            "You can create keys with different permission scopes.\n\n"
-            "Q: What are the rate limits?\n"
+            "You can create keys with different permission scopes for your API Integration.\n\n"
+            "Q: What are the rate limits for API Integration?\n"
             "A: Free tier: 100 requests per minute, 10,000 per day. "
             "Pro tier: 1,000 requests per minute, 100,000 per day. "
             "Enterprise tier: custom limits available.\n\n"
-            "Q: How do I authenticate API requests?\n"
+            "Q: How do I authenticate API Integration requests?\n"
             "A: Include your API key in the Authorization header: "
             "Authorization: Bearer YOUR_API_KEY. You can also use query parameter ?api_key=YOUR_KEY.\n\n"
-            "Q: Do you support webhooks?\n"
+            "Q: Do you support webhooks for API Integration?\n"
             "A: Yes! Configure webhooks in Settings > Integrations > Webhooks. "
             "We support HTTPS endpoints and deliver events for document changes, "
             "user actions, and system events.\n\n"
-            "Q: Where can I find the API documentation?\n"
-            "A: Full API documentation is available at /docs (Swagger UI) and /redoc (ReDoc). "
+            "Q: Where can I find the API Integration documentation?\n"
+            "A: Full API Integration documentation is available at /docs (Swagger UI) and /redoc (ReDoc). "
             "Interactive examples are provided for all endpoints."
         ),
         "category": "FAQ",
+    },
+    {
+        "title": "Project Information",
+        "source_url": "https://github.com/volsSha/Qa-bot",
+        "content": (
+            "Information about our project and how to find us:\n\n"
+            "Q: What is this project?\n"
+            "A: This is an AI-powered support assistant (RAG system) that helps users find answers "
+            "from your knowledge base. It uses retrieval-augmented generation to provide accurate "
+            "responses based on your documentation.\n\n"
+            "Q: What is your website?\n"
+            "A: Our project repository is available on GitHub at github.com/volsSha/Qa-bot. "
+            "You can find the source code, documentation, and contribution guidelines there.\n\n"
+            "Q: How can I find your site?\n"
+            "A: Visit github.com/volsSha/Qa-bot to access our project. The repository contains "
+            "the full source code, setup instructions, and usage examples.\n\n"
+            "Q: Is the project open source?\n"
+            "A: Yes, the project is open source and available on GitHub. "
+            "You can report issues, submit pull requests, and contribute to the development.\n\n"
+            "Q: How can I contact the team?\n"
+            "A: You can reach us through GitHub issues on our repository page, "
+            "or by email at the contact information provided in the repository README."
+        ),
+        "category": "About",
     },
 ]
 
