@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import sys
 
 from nicegui import app, background_tasks, ui
 
@@ -10,6 +11,8 @@ from src.rag.safety import RAGResult, Source, ThinkEvent
 from src.ui.styles import apply_dark_mode, inject_global_styles, toggle_dark_mode
 
 logger = logging.getLogger(__name__)
+logger.addHandler(logging.StreamHandler(sys.stdout))
+logger.setLevel(logging.DEBUG)
 
 
 class ChatState:
@@ -122,6 +125,7 @@ async def _stream_response(state: ChatState, query: str):
         user_id = app.storage.user.get("user_id", 1)
 
         logger.info("stream_response: user_id=%s query=%r", user_id, query[:100])
+        print(f"[CHAT] stream_response: user_id={user_id} query={query[:100]!r}", flush=True)
 
         assistant_idx = len(state.messages)
         state.messages.append({
@@ -411,6 +415,7 @@ def _on_submit(state: ChatState, text_input: ui.input, send_button: ui.button):
     if not text or not text.strip() or state.is_streaming:
         return
 
+    print(f"[CHAT] on_submit: query={text.strip()!r}", flush=True)
     logger.info("on_submit: query=%r", text.strip())
 
     text_input.set_value("")
@@ -433,10 +438,15 @@ def _on_submit(state: ChatState, text_input: ui.input, send_button: ui.button):
 
     async def _task():
         try:
+            print(f"[CHAT] _task starting: query={text.strip()!r}", flush=True)
             await _stream_response(state, text.strip())
+            print(f"[CHAT] _task completed successfully", flush=True)
         except Exception:
+            print("[CHAT] _task EXCEPTION:", flush=True)
+            import traceback; traceback.print_exc()
             logger.exception("stream_response failed")
         finally:
+            print(f"[CHAT] _task finally: is_streaming={state.is_streaming}", flush=True)
             await _after_stream()
 
     background_tasks.create(_task)
