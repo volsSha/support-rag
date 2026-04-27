@@ -234,6 +234,7 @@ async def _stream_response(state: ChatState, query: str):
 
     finally:
         state.is_streaming = False
+        message_list.refresh()
 
 
 async def _create_new_conversation(state: ChatState):
