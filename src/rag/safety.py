@@ -32,5 +32,7 @@ def compute_confidence(
     distance_weight = 1.0 - reranker_weight
     confidence = distance_weight * distance_confidence + reranker_weight * top_score
     confidence = max(0.0, min(1.0, confidence))
-    is_escalated = top_distance > threshold
+    # Use confidence < threshold for escalation instead of distance > threshold
+    # This works better for hash-based embeddings where distance is noisy
+    is_escalated = confidence < threshold
     return confidence, is_escalated
