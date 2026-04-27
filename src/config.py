@@ -9,6 +9,7 @@ class OpenRouterSettings(BaseSettings):
     default_model: str = "openai/gpt-4o-mini"
     max_tokens: int = 2048
     temperature: float = 0.3
+    request_timeout_seconds: int = 30
 
 
 class EmbeddingSettings(BaseSettings):

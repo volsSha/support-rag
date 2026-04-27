@@ -13,6 +13,7 @@ from src.services.documents import create_document, ingest_document
 SAMPLE_DOCUMENTS = [
     {
         "title": "Getting Started",
+        "source_url": "https://docs.support-rag.local/getting-started",
         "content": (
             "Welcome to our platform! Here are some common questions:\n\n"
             "Q: How do I create an account?\n"
@@ -32,6 +33,7 @@ SAMPLE_DOCUMENTS = [
     },
     {
         "title": "Account Management",
+        "source_url": "https://docs.support-rag.local/account-management",
         "content": (
             "Frequently asked questions about managing your account:\n\n"
             "Q: How do I reset my password?\n"
@@ -54,6 +56,7 @@ SAMPLE_DOCUMENTS = [
     },
     {
         "title": "API Integration",
+        "source_url": "https://docs.support-rag.local/api-integration",
         "content": (
             "Everything you need to know about our API:\n\n"
             "Q: How do I get an API key?\n"
@@ -116,7 +119,7 @@ async def seed():
                     session,
                     title=doc_data["title"],
                     content=doc_data["content"],
-                    source_url=None,
+                    source_url=doc_data.get("source_url"),
                     category=doc_data["category"],
                 )
                 await session.commit()

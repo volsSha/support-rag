@@ -1,8 +1,8 @@
 import logging
+import asyncio
 
 from nicegui import app, background_tasks, ui
 
-from src.config import get_settings
 from src.db.engine import async_session_factory
 from src.db.models import Conversation, Message
 from src.rag.pipeline import get_pipeline
@@ -17,6 +17,7 @@ class ChatState:
         self.messages: list[dict] = []
         self.is_streaming: bool = False
         self.conversation_id: int | None = None
+        self.streaming_error: str | None = None
 
 
 def _build_sources_html(sources: list[Source]) -> str:
@@ -72,6 +73,14 @@ async def message_list(state: ChatState):
                         "text-negative text-sm italic"
                     )
 
+        if state.is_streaming:
+            with ui.row().classes("w-full justify-start"):
+                with ui.row().classes(
+                    "chat-bubble-assistant rounded-xl px-4 py-2 items-center gap-2"
+                ):
+                    ui.spinner(size="sm").classes("text-blue-500")
+                    ui.label("Thinking...").classes("text-sm text-gray-600 dark:text-gray-300")
+
 
 async def _scroll_to_bottom():
     await ui.run_javascript(
@@ -82,8 +91,9 @@ async def _scroll_to_bottom():
 
 async def _stream_response(state: ChatState, query: str):
     try:
+        state.streaming_error = None
         pipeline = get_pipeline()
-        settings = get_settings()
+        timeout_seconds = 30
         user_id = app.storage.user.get("user_id", 1)
 
         assistant_idx = len(state.messages)
@@ -98,11 +108,23 @@ async def _stream_response(state: ChatState, query: str):
         accumulated = ""
         final_result: RAGResult | None = None
 
-        async for item in pipeline.process_query(
+        stream = pipeline.process_query(
             query,
             user_id=user_id,
             conversation_id=state.conversation_id,
-        ):
+        )
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_seconds
+
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise TimeoutError("Chat request timed out")
+            try:
+                item = await asyncio.wait_for(stream.__anext__(), timeout=remaining)
+            except StopAsyncIteration:
+                break
+
             if isinstance(item, str):
                 accumulated += item
                 state.messages[assistant_idx]["content"] = accumulated
@@ -139,8 +161,22 @@ async def _stream_response(state: ChatState, query: str):
         message_list.refresh()
         await _scroll_to_bottom()
 
+    except TimeoutError:
+        state.streaming_error = "timeout"
+        state.messages.append({
+            "role": "error",
+            "content": "Request timed out. Please try again.",
+        })
+        message_list.refresh()
+        ui.notify(
+            "Request timed out. Please try again.",
+            color="warning",
+            position="top",
+            close_button=True,
+        )
     except Exception as exc:
         logger.exception("Error streaming response")
+        state.streaming_error = str(exc)
         state.messages.append({
             "role": "error",
             "content": "Something went wrong. Please try again.",
@@ -370,11 +406,16 @@ def _on_submit(state: ChatState, text_input: ui.input, send_button: ui.button):
         await _scroll_to_bottom()
         send_button.enable()
         text_input.enable()
-        await text_input.run_method("focus")
+        try:
+            await text_input.run_method("focus")
+        except Exception:
+            logger.debug("Skipping focus restore", exc_info=True)
         conversation_sidebar.refresh()
 
     async def _task():
-        await _stream_response(state, text.strip())
-        await _after_stream()
+        try:
+            await _stream_response(state, text.strip())
+        finally:
+            await _after_stream()
 
     background_tasks.create(_task)

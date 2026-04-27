@@ -23,17 +23,14 @@ async def create_admin_page():
         dark_icon = "light_mode" if app.storage.user.get("dark_mode", False) else "dark_mode"
         ui.button(icon=dark_icon, on_click=toggle_dark_mode).props("flat")
 
-    ui.button("Add Document", icon="add", on_click=lambda: _open_add_dialog()).props("color=primary")
+    with ui.row().classes("w-full px-2 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide"):
+        ui.label("Title").classes("w-[26%]")
+        ui.label("Source URL").classes("w-[30%]")
+        ui.label("Category").classes("w-[14%]")
+        ui.label("Created").classes("w-[16%]")
+        ui.label("Actions").classes("w-[14%] text-center")
 
-    columns = [
-        {"name": "title", "label": "Title", "field": "title", "align": "left"},
-        {"name": "source_url", "label": "Source URL", "field": "source_url", "align": "left"},
-        {"name": "category", "label": "Category", "field": "category", "align": "left"},
-        {"name": "created", "label": "Created", "field": "created", "align": "left"},
-        {"name": "actions", "label": "Actions", "field": "actions", "align": "center"},
-    ]
-
-    table = ui.table(columns=columns, rows=[]).classes("w-full mt-4")
+    docs_container = ui.column().classes("w-full gap-2 mt-2")
 
     async def refresh_table():
         from src.db.engine import async_session_factory
@@ -41,80 +38,93 @@ async def create_admin_page():
         async with async_session_factory() as session:
             docs = await get_all_documents(session)
 
+        docs_container.clear()
         if not docs:
-            table.rows = []
-            table.update()
-            empty_container.clear()
-            with empty_container:
+            with docs_container:
                 ui.label("No documents yet. Click 'Add Document' to get started.").classes(
                     "text-gray-500 text-lg mt-8"
                 )
             return
 
-        empty_container.clear()
-        rows = []
-        for doc in docs:
-            created_str = doc.created_at.strftime("%Y-%m-%d %H:%M") if doc.created_at else ""
-            rows.append({
-                "id": doc.id,
-                "title": doc.title,
-                "source_url": doc.source_url or "",
-                "category": doc.category,
-                "created": created_str,
-            })
-        table.rows = rows
-        table.update()
+        with docs_container:
+            for doc in docs:
+                created_str = doc.created_at.strftime("%Y-%m-%d %H:%M") if doc.created_at else ""
+                with ui.row().classes(
+                    "w-full items-center px-3 py-3 rounded-lg border border-gray-200 dark:border-gray-700"
+                ):
+                    async def _open_doc_dialog(doc_id: int) -> None:
+                        await _show_document_dialog(doc_id)
 
-    with table.add_slot("body-cell-actions"):
-        async def render_actions(props):
-            with ui.row().classes("flex items-center justify-center gap-2"):
+                    ui.label(doc.title).classes("w-[26%] font-medium truncate")
+                    if doc.source_url:
+                        ui.link(doc.source_url, doc.source_url).classes("w-[30%] truncate text-blue-600")
+                    else:
+                        ui.label("-").classes("w-[30%] text-gray-400")
+                    ui.label(doc.category).classes("w-[14%]")
+                    ui.label(created_str).classes("w-[16%] text-sm")
+                    with ui.row().classes("w-[14%] justify-center gap-1"):
+                        ui.button(
+                            icon="visibility",
+                            on_click=lambda doc_id=doc.id: _open_doc_dialog(doc_id),
+                        ).props("flat dense color=primary size=sm")
+                        ui.button(
+                            icon="delete",
+                            on_click=lambda doc_id=doc.id: _confirm_delete(doc_id, refresh_table),
+                        ).props("flat dense color=negative size=sm")
+
+    with ui.dialog().classes("w-[600px]") as add_dialog:
+        with ui.card():
+            ui.label("Add Document").classes("text-xl font-bold mb-4")
+
+            title_input = ui.input("Title").classes("w-full")
+            title_input.validation = {"Title is required": lambda v: bool(v and v.strip())}
+
+            content_input = ui.textarea("Content").classes("w-full").props("rows=10 autogrow")
+            content_input.validation = {"Content is required": lambda v: bool(v and v.strip())}
+
+            url_input = ui.input("Source URL (optional)").classes("w-full")
+            category_input = ui.select(
+                options=CATEGORIES,
+                label="Category",
+                value=CATEGORIES[0],
+            ).classes("w-full")
+
+            with ui.row().classes("justify-end gap-2 mt-4"):
+                ui.button("Cancel", on_click=add_dialog.close).props("flat")
+
+                async def handle_submit() -> None:
+                    await _submit_document(
+                        add_dialog,
+                        refresh_table,
+                        title_input,
+                        content_input,
+                        url_input,
+                        category_input,
+                    )
+
                 ui.button(
-                    icon="delete",
-                    on_click=lambda _, doc_id=props.row["id"]: _confirm_delete(doc_id, refresh_table),
-                ).props("flat dense color=negative size=sm")
+                    "Submit",
+                    on_click=handle_submit,
+                ).props("color=primary")
 
-        render_actions
-
-    empty_container = ui.column().classes("w-full")
+    with ui.row().classes("items-center gap-2 mt-2"):
+        ui.button(
+            "Add Document",
+            icon="add",
+            on_click=lambda: add_dialog.open(),
+        ).props("color=primary")
 
     background_tasks.create(refresh_table())
 
 
-def _open_add_dialog():
-    with ui.dialog().classes("w-[600px]") as dialog, ui.card():
-        ui.label("Add Document").classes("text-xl font-bold mb-4")
-
-        title_input = ui.input("Title").classes("w-full")
-        title_input.validation = {"Title is required": lambda v: bool(v.strip())}
-
-        content_input = ui.textarea("Content").classes("w-full").props('rows=10 autogrow')
-        content_input.validation = {"Content is required": lambda v: bool(v.strip())}
-
-        url_input = ui.input("Source URL (optional)").classes("w-full")
-
-        category_input = ui.select(
-            "Category",
-            options=CATEGORIES,
-            value=CATEGORIES[0],
-        ).classes("w-full")
-
-        with ui.row().classes("justify-end gap-2 mt-4"):
-            ui.button("Cancel", on_click=dialog.close).props("flat")
-            ui.button(
-                "Submit",
-                on_click=lambda: _submit_document(
-                    dialog,
-                    title_input,
-                    content_input,
-                    url_input,
-                    category_input,
-                ),
-            ).props("color=primary")
-
-    dialog.open()
-
-
-async def _submit_document(dialog, title_input, content_input, url_input, category_input):
+async def _submit_document(
+    dialog,
+    refresh_callback,
+    title_input,
+    content_input,
+    url_input,
+    category_input,
+):
     title = title_input.value.strip()
     content = content_input.value.strip()
     source_url = url_input.value.strip() or None
@@ -134,6 +144,30 @@ async def _submit_document(dialog, title_input, content_input, url_input, catego
 
     dialog.close()
     ui.notify(f"Document created successfully ({chunk_count} chunks)", type="positive")
+    await refresh_callback()
+
+
+async def _show_document_dialog(doc_id: int):
+    from src.db.engine import async_session_factory
+
+    async with async_session_factory() as session:
+        docs = await get_all_documents(session)
+        doc = next((d for d in docs if d.id == int(doc_id)), None)
+
+    if doc is None:
+        ui.notify("Document not found", type="negative")
+        return
+
+    with ui.dialog().classes("w-[800px]") as dialog, ui.card().classes("w-full"):
+        ui.label(doc.title).classes("text-xl font-bold")
+        if doc.source_url:
+            ui.link(doc.source_url, doc.source_url).classes("text-blue-600")
+        ui.separator()
+        ui.markdown(doc.content).classes("max-h-[60vh] overflow-auto text-sm")
+        with ui.row().classes("w-full justify-end mt-4"):
+            ui.button("Close", on_click=dialog.close).props("flat")
+
+    dialog.open()
 
 
 def _confirm_delete(doc_id, refresh_callback):
