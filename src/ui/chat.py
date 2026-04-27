@@ -7,7 +7,7 @@ from src.db.engine import async_session_factory
 from src.db.models import Conversation, Message
 from src.rag.pipeline import get_pipeline
 from src.rag.safety import RAGResult, Source
-from src.ui.styles import inject_global_styles
+from src.ui.styles import apply_dark_mode, inject_global_styles, toggle_dark_mode
 
 logger = logging.getLogger(__name__)
 
@@ -213,15 +213,19 @@ async def _load_conversation_history() -> list[dict]:
 
 @ui.refreshable
 async def conversation_sidebar(state: ChatState):
-    async with async_session_factory() as session:
-        from sqlalchemy import select
-        stmt = (
-            select(Conversation)
-            .order_by(Conversation.created_at.desc())
-            .limit(20)
-        )
-        result = await session.execute(stmt)
-        conversations = result.scalars().all()
+    try:
+        async with async_session_factory() as session:
+            from sqlalchemy import select
+            stmt = (
+                select(Conversation)
+                .order_by(Conversation.created_at.desc())
+                .limit(20)
+            )
+            result = await session.execute(stmt)
+            conversations = result.scalars().all()
+    except Exception:
+        logger.exception("Failed to render conversation sidebar")
+        conversations = []
 
     with ui.column().classes("w-full gap-1"):
         ui.button(
@@ -231,7 +235,9 @@ async def conversation_sidebar(state: ChatState):
         ).props("flat no-caps color=primary").classes("w-full justify-start")
 
         if not conversations:
-            ui.label("No conversations yet").classes("text-sm text-gray-500 italic")
+            ui.label("No conversations yet").classes(
+                "text-sm text-gray-500 dark:text-gray-400 italic"
+            )
             return
 
         for conv in conversations:
@@ -295,6 +301,7 @@ async def _switch_conversation(state: ChatState, conv_id: int):
 @ui.page("/")
 async def create_chat_page():
     inject_global_styles()
+    await apply_dark_mode()
 
     state = ChatState()
 
@@ -305,7 +312,7 @@ async def create_chat_page():
             with ui.scroll_area().classes("h-full p-2"):
                 with ui.card().classes("w-full h-fit"):
                     ui.label("Conversations").classes(
-                        "text-sm font-semibold mb-2 text-gray-700"
+                        "text-sm font-semibold mb-2 text-gray-700 dark:text-gray-200"
                     )
                     await conversation_sidebar(state)
 
@@ -317,6 +324,11 @@ async def create_chat_page():
                     if is_admin:
                         ui.link("Admin", "/admin").classes("text-white mr-4").props("color=white")
                     ui.space()
+                    dark_icon = "light_mode" if app.storage.user.get("dark_mode", False) else "dark_mode"
+                    ui.button(
+                        icon=dark_icon,
+                        on_click=toggle_dark_mode,
+                    ).props("flat color=white size=sm").classes("mr-1")
                     ui.button(
                         "Logout", on_click=lambda: (
                             ui.run_javascript('document.cookie="access_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/"'),

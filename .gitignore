@@ -19,3 +19,4 @@ data/*.db-shm
 htmlcov/
 .coverage
 /docs/plans/
+.nicegui/
