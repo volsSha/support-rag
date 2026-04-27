@@ -7,7 +7,7 @@ from src.db.engine import async_session_factory
 from src.db.models import Conversation, Message
 from src.rag.pipeline import get_pipeline
 from src.rag.safety import RAGResult, Source
-from src.ui.styles import inject_global_styles
+from src.ui.styles import apply_dark_mode, inject_global_styles, toggle_dark_mode
 
 logger = logging.getLogger(__name__)
 
@@ -213,15 +213,19 @@ async def _load_conversation_history() -> list[dict]:
 
 @ui.refreshable
 async def conversation_sidebar(state: ChatState):
-    async with async_session_factory() as session:
-        from sqlalchemy import select
-        stmt = (
-            select(Conversation)
-            .order_by(Conversation.created_at.desc())
-            .limit(20)
-        )
-        result = await session.execute(stmt)
-        conversations = result.scalars().all()
+    try:
+        async with async_session_factory() as session:
+            from sqlalchemy import select
+            stmt = (
+                select(Conversation)
+                .order_by(Conversation.created_at.desc())
+                .limit(20)
+            )
+            result = await session.execute(stmt)
+            conversations = result.scalars().all()
+    except Exception:
+        logger.exception("Failed to render conversation sidebar")
+        conversations = []
 
     with ui.column().classes("w-full gap-1"):
         ui.button(
@@ -231,7 +235,9 @@ async def conversation_sidebar(state: ChatState):
         ).props("flat no-caps color=primary").classes("w-full justify-start")
 
         if not conversations:
-            ui.label("No conversations yet").classes("text-sm text-gray-500 italic")
+            ui.label("No conversations yet").classes(
+                "text-sm text-gray-500 dark:text-gray-400 italic"
+            )
             return
 
         for conv in conversations:
@@ -295,58 +301,56 @@ async def _switch_conversation(state: ChatState, conv_id: int):
 @ui.page("/")
 async def create_chat_page():
     inject_global_styles()
+    await apply_dark_mode()
 
     state = ChatState()
 
     await ui.context.client.connected()
 
-    with ui.splitter(value=20).classes("w-full h-full") as splitter:
-        with splitter.before:
-            with ui.scroll_area().classes("h-full p-2"):
+    with ui.column().classes("w-full min-h-screen bg-gray-50 dark:bg-gray-900"):
+        with ui.row().classes("w-full items-center gap-3 px-4 py-3 bg-blue-600 dark:bg-gray-800 text-white"):
+            ui.link("Chat", "/").classes("text-white")
+            is_admin = app.storage.user.get("is_admin", False)
+            if is_admin:
+                ui.link("Admin", "/admin").classes("text-white")
+            ui.space()
+            dark_icon = "light_mode" if app.storage.user.get("dark_mode", False) else "dark_mode"
+            ui.button(icon=dark_icon, on_click=toggle_dark_mode).props("flat color=white size=sm")
+            ui.button(
+                "Logout",
+                on_click=lambda: (
+                    ui.run_javascript('document.cookie="access_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/"'),
+                    ui.navigate.to("/login"),
+                ),
+            ).props("flat color=white size=sm")
+
+        with ui.row().classes("w-full flex-1 min-h-0"):
+            with ui.column().classes("w-72 shrink-0 border-r border-gray-200 dark:border-gray-700 p-2"):
                 with ui.card().classes("w-full h-fit"):
                     ui.label("Conversations").classes(
-                        "text-sm font-semibold mb-2 text-gray-700"
+                        "text-sm font-semibold mb-2 text-gray-700 dark:text-gray-200"
                     )
                     await conversation_sidebar(state)
 
-        with splitter.after:
-            with ui.column().classes("w-full h-full"):
-                with ui.header().classes("w-full").props("elevated"):
-                    ui.link("Chat", "/").classes("text-white mr-4").props("color=white")
-                    is_admin = app.storage.user.get("is_admin", False)
-                    if is_admin:
-                        ui.link("Admin", "/admin").classes("text-white mr-4").props("color=white")
-                    ui.space()
-                    ui.button(
-                        "Logout", on_click=lambda: (
-                            ui.run_javascript('document.cookie="access_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/"'),
-                            ui.navigate.to("/login"),
-                        )
-                    ).props("flat color=white size=sm")
-
-                with ui.scroll_area().classes("flex-grow w-full").props(
-                    'id="message-area"'
-                ):
+            with ui.column().classes("flex-1 min-w-0"):
+                with ui.scroll_area().classes("w-full").style("height: calc(100vh - 132px);").props('id="message-area"'):
                     with ui.column().classes("w-full max-w-4xl mx-auto p-4 gap-2"):
                         await message_list(state)
 
-                with ui.footer().classes("w-full").props("elevated"):
-                    with ui.row().classes(
-                        "w-full max-w-4xl mx-auto items-center gap-2 p-2"
-                    ):
-                        text_input = ui.input(
-                            placeholder="Ask a question...",
-                        ).classes("flex-grow").props("outlined dense").on(
-                            "keydown.enter",
-                            lambda e: _on_submit(state, text_input, send_button),
-                        )
+                with ui.row().classes(
+                    "w-full max-w-4xl mx-auto items-center gap-2 p-3 border-t border-gray-200 dark:border-gray-700"
+                ):
+                    text_input = ui.input(
+                        placeholder="Ask a question...",
+                    ).classes("flex-grow").props("outlined dense").on(
+                        "keydown.enter",
+                        lambda e: _on_submit(state, text_input, send_button),
+                    )
 
-                        send_button = ui.button(
-                            icon="send",
-                            on_click=lambda: _on_submit(state, text_input, send_button),
-                        ).props(
-                            "round dense color=primary size=sm"
-                        ).classes("shrink-0")
+                    send_button = ui.button(
+                        icon="send",
+                        on_click=lambda: _on_submit(state, text_input, send_button),
+                    ).props("round dense color=primary size=sm").classes("shrink-0")
 
 
 def _on_submit(state: ChatState, text_input: ui.input, send_button: ui.button):

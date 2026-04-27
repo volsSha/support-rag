@@ -1,8 +1,12 @@
-from nicegui import ui
+from nicegui import app, ui
 
 
 def inject_global_styles():
     ui.add_css('''
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            transition: background-color 0.3s, color 0.3s;
+        }
         .nicegui-markdown a {
             color: #3b82f6;
             text-decoration: none;
@@ -54,7 +58,59 @@ def inject_global_styles():
             background-color: #dbeafe;
             text-decoration: none;
         }
-        body {
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        /* Dark mode styles */
+        .dark body {
+            background-color: #111827;
+            color: #f9fafb;
+        }
+        .dark .q-card {
+            background-color: #1f2937 !important;
+            color: #f9fafb !important;
+        }
+        .dark .q-input {
+            color: #f9fafb !important;
+        }
+        .dark .q-field__label {
+            color: #9ca3af !important;
+        }
+        .dark .chat-bubble-assistant {
+            background-color: #374151;
+            color: #f9fafb;
+        }
+        .dark .chat-bubble-user {
+            background-color: #2563eb;
+            color: white;
+        }
+        .dark .q-btn {
+            color: #f9fafb !important;
+        }
+        .dark .source-link {
+            background-color: #1e3a8a;
+            border-color: #3b82f6;
+            color: #93c5fd;
+        }
+        .dark .source-link:hover {
+            background-color: #1e40af;
+        }
+        .dark .q-header, .dark .q-footer {
+            background-color: #1f2937 !important;
+            color: #f9fafb !important;
+        }
+        .dark .q-splitter__separator {
+            background-color: #374151 !important;
         }
     ''')
+
+
+async def apply_dark_mode() -> None:
+    is_dark = app.storage.user.get("dark_mode", False)
+    if is_dark:
+        await ui.run_javascript('document.documentElement.classList.add("dark")')
+    else:
+        await ui.run_javascript('document.documentElement.classList.remove("dark")')
+
+
+async def toggle_dark_mode() -> None:
+    current = app.storage.user.get("dark_mode", False)
+    app.storage.user["dark_mode"] = not current
+    await apply_dark_mode()
