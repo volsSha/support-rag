@@ -99,6 +99,20 @@ uv run pytest
 3. If admin, open `/admin` to manage source docs.
 4. Toggle dark mode from header controls.
 
+### Interface examples
+
+#### Login page
+
+![Login page](docs/interface-screenshots/login-page.png)
+
+#### Chat page
+
+![Chat page](docs/interface-screenshots/chat-page.png)
+
+#### Admin page
+
+![Admin page](docs/interface-screenshots/admin-page.png)
+
 ### Troubleshooting
 
 - Blank/empty UI: verify app is reachable at `APP_URL`/`http://localhost:8080`, and check server logs for startup errors.
@@ -204,6 +218,20 @@ uv run pytest
 2. Працюйте з чатом на `/`.
 3. Якщо ви адміністратор, керуйте документами на `/admin`.
 4. Перемикайте тему у шапці сторінки.
+
+### Приклади інтерфейсу
+
+#### Сторінка входу
+
+![Сторінка входу](docs/interface-screenshots/login-page.png)
+
+#### Сторінка чату
+
+![Сторінка чату](docs/interface-screenshots/chat-page.png)
+
+#### Адмін-сторінка
+
+![Адмін-сторінка](docs/interface-screenshots/admin-page.png)
 
 ### Діагностика проблем
 
