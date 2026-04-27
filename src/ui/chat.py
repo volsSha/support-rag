@@ -21,6 +21,7 @@ class ChatState:
         self.is_streaming: bool = False
         self.conversation_id: int | None = None
         self.streaming_error: str | None = None
+        self.message_container: ui.column | None = None
 
 
 def _build_think_html(think_events: list[dict]) -> str:
@@ -53,48 +54,50 @@ def _build_sources_html(sources: list[Source]) -> str:
     return '<div class="sources-container">' + " &middot; ".join(links) + "</div>"
 
 
-@ui.refreshable
-async def message_list(state: ChatState):
-    with ui.column().classes("w-full gap-2"):
-        for msg in state.messages:
-            if msg["role"] == "user":
-                with ui.row().classes("w-full justify-end"):
-                    ui.label(msg["content"]).classes(
-                        "chat-bubble-user rounded-xl px-4 py-2 max-w-[75%] "
-                        "text-white text-sm break-words"
+def _render_message(msg: dict):
+    if msg["role"] == "user":
+        with ui.row().classes("w-full justify-end"):
+            ui.label(msg["content"]).classes(
+                "chat-bubble-user rounded-xl px-4 py-2 max-w-[75%] "
+                "text-white text-sm break-words"
+            )
+    elif msg["role"] == "assistant":
+        with ui.row().classes("w-full justify-start"):
+            with ui.column().classes("max-w-[75%] gap-1"):
+                if msg.get("escalated"):
+                    with ui.row().classes(
+                        "escalation-banner items-center gap-2 rounded-xl "
+                        "px-4 py-3 text-sm"
+                    ):
+                        ui.icon("warning", color="warning").classes("text-lg shrink-0")
+                        ui.label(
+                            "I couldn't find relevant information for your "
+                            "question. A support agent will follow up."
+                        ).classes("text-warning")
+                if msg["content"]:
+                    ui.markdown(msg["content"]).classes(
+                        "chat-bubble-assistant rounded-xl px-4 py-2 text-sm "
+                        "break-words"
                     )
-            elif msg["role"] == "assistant":
-                with ui.row().classes("w-full justify-start"):
-                    with ui.column().classes("max-w-[75%] gap-1"):
-                        if msg.get("escalated"):
-                            with ui.row().classes(
-                                "escalation-banner items-center gap-2 rounded-xl "
-                                "px-4 py-3 text-sm"
-                            ):
-                                ui.icon("warning", color="warning").classes(
-                                    "text-lg shrink-0"
-                                )
-                                ui.label(
-                                    "I couldn't find relevant information for your "
-                                    "question. A support agent will follow up."
-                                ).classes("text-warning")
-                        if msg["content"]:
-                            ui.markdown(msg["content"]).classes(
-                                "chat-bubble-assistant rounded-xl px-4 py-2 text-sm "
-                                "break-words"
-                            )
-                        think_events = msg.get("think_events")
-                        if think_events:
-                            ui.html(_build_think_html(think_events))
-                        sources = msg.get("sources")
-                        if sources:
-                            ui.html(_build_sources_html(sources))
-            elif msg["role"] == "error":
-                with ui.row().classes("w-full justify-center"):
-                    ui.label(msg["content"]).classes(
-                        "text-negative text-sm italic"
-                    )
+                think_events = msg.get("think_events")
+                if think_events:
+                    with ui.expansion("Thinking process", icon="psychology").classes("w-full"):
+                        ui.html(_build_think_html(think_events))
+                sources = msg.get("sources")
+                if sources:
+                    ui.html(_build_sources_html(sources))
+    elif msg["role"] == "error":
+        with ui.row().classes("w-full justify-center"):
+            ui.label(msg["content"]).classes("text-negative text-sm italic")
 
+
+def refresh_messages(state: ChatState):
+    if state.message_container is None:
+        return
+    state.message_container.clear()
+    with state.message_container:
+        for msg in state.messages:
+            _render_message(msg)
         if state.is_streaming:
             with ui.row().classes("w-full justify-start"):
                 with ui.row().classes(
@@ -135,7 +138,7 @@ async def _stream_response(state: ChatState, query: str):
             "escalated": False,
             "think_events": [],
         })
-        message_list.refresh()
+        refresh_messages(state)
 
         accumulated = ""
         final_result: RAGResult | None = None
@@ -199,7 +202,7 @@ async def _stream_response(state: ChatState, query: str):
         elif accumulated:
             state.messages[assistant_idx]["content"] = accumulated
 
-        message_list.refresh()
+        refresh_messages(state)
         await _scroll_to_bottom()
 
     except TimeoutError:
@@ -209,7 +212,7 @@ async def _stream_response(state: ChatState, query: str):
             "role": "error",
             "content": "Request timed out. Please try again.",
         })
-        message_list.refresh()
+        refresh_messages(state)
         ui.notify(
             "Request timed out. Please try again.",
             color="warning",
@@ -223,7 +226,7 @@ async def _stream_response(state: ChatState, query: str):
             "role": "error",
             "content": "Something went wrong. Please try again.",
         })
-        message_list.refresh()
+        refresh_messages(state)
         ui.notify(
             f"Error: {exc}",
             color="negative",
@@ -233,13 +236,13 @@ async def _stream_response(state: ChatState, query: str):
 
     finally:
         state.is_streaming = False
-        message_list.refresh()
+        refresh_messages(state)
 
 
 async def _create_new_conversation(state: ChatState):
     state.messages.clear()
     state.conversation_id = None
-    message_list.refresh()
+    refresh_messages(state)
 
 
 async def _load_conversation_history() -> list[dict]:
@@ -341,7 +344,7 @@ async def _switch_conversation(state: ChatState, conv_id: int):
                 entry["escalated"] = True
             state.messages.append(entry)
 
-        message_list.refresh()
+        refresh_messages(state)
         conversation_sidebar.refresh()
         await _scroll_to_bottom()
 
@@ -386,8 +389,9 @@ async def create_chat_page():
 
             with ui.column().classes("flex-1 min-w-0"):
                 with ui.scroll_area().classes("w-full").style("height: calc(100vh - 132px);").props('id="message-area"'):
-                    with ui.column().classes("w-full max-w-4xl mx-auto p-4 gap-2"):
-                        await message_list(state)
+                    with ui.column().classes("w-full max-w-4xl mx-auto p-4 gap-2") as container:
+                        state.message_container = container
+                        refresh_messages(state)
 
                 with ui.row().classes(
                     "w-full max-w-4xl mx-auto items-center gap-2 p-3 border-t border-gray-200 dark:border-gray-700"
@@ -419,7 +423,7 @@ def _on_submit(state: ChatState, text_input: ui.input, send_button: ui.button):
     text_input.disable()
 
     state.messages.append({"role": "user", "content": text.strip()})
-    message_list.refresh()
+    refresh_messages(state)
 
     async def _after_stream():
         print(f"[CHAT] _after_stream: is_streaming={state.is_streaming}", flush=True)
