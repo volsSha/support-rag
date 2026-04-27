@@ -121,6 +121,8 @@ async def _stream_response(state: ChatState, query: str):
         timeout_seconds = 30
         user_id = app.storage.user.get("user_id", 1)
 
+        logger.info("stream_response: user_id=%s query=%r", user_id, query[:100])
+
         assistant_idx = len(state.messages)
         state.messages.append({
             "role": "assistant",
@@ -170,6 +172,9 @@ async def _stream_response(state: ChatState, query: str):
                 final_result = item
 
         if final_result:
+            logger.info("stream_response: final_result answer_len=%s escalated=%s conv_id=%s",
+                        len(final_result.answer or ""), final_result.escalated,
+                        final_result.conversation_id)
             think_events = state.messages[assistant_idx].get("think_events", [])
             if final_result.escalated:
                 state.messages[assistant_idx] = {
@@ -199,6 +204,7 @@ async def _stream_response(state: ChatState, query: str):
         await _scroll_to_bottom()
 
     except TimeoutError:
+        logger.warning("stream_response: timeout after %ss", 30)
         state.streaming_error = "timeout"
         state.messages.append({
             "role": "error",
@@ -404,6 +410,8 @@ def _on_submit(state: ChatState, text_input: ui.input, send_button: ui.button):
     if not text or not text.strip() or state.is_streaming:
         return
 
+    logger.info("on_submit: query=%r", text.strip())
+
     text_input.set_value("")
     state.is_streaming = True
     send_button.disable()
@@ -425,6 +433,8 @@ def _on_submit(state: ChatState, text_input: ui.input, send_button: ui.button):
     async def _task():
         try:
             await _stream_response(state, text.strip())
+        except Exception:
+            logger.exception("stream_response failed")
         finally:
             await _after_stream()
 
