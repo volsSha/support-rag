@@ -80,7 +80,7 @@ class OpenRouterClient:
 _client: OpenRouterClient | None = None
 
 
-def get_llm_client() -> OpenRouterClient:
+def get_llm_client() -> OpenRouterClient | None:
     global _client
     if _client is None:
         _client = OpenRouterClient()
