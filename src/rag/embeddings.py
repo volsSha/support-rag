@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import re
 from typing import Any
 
 from src.config import get_settings
@@ -38,7 +39,9 @@ _model: SentenceTransformer | None = None
 
 def _hashed_embedding(text: str, dimensions: int) -> list[float]:
     vector = [0.0] * dimensions
-    for token in text.lower().split():
+    for token in re.split(r'\W+', text.lower()):
+        if not token:
+            continue
         digest = hashlib.sha256(token.encode("utf-8")).digest()
         idx = int.from_bytes(digest[:4], "big") % dimensions
         sign = 1.0 if digest[4] % 2 == 0 else -1.0
