@@ -81,6 +81,9 @@ async def _do_login(username_input, password_input, redirect_to: str):
         await ui.run_javascript(
             f"document.cookie = 'access_token={token}; path=/; max-age={settings.auth.jwt_expire_minutes * 60}; SameSite=Lax';"
         )
+        app.storage.user["user_id"] = user.id
+        app.storage.user["username"] = user.username
+        app.storage.user["is_admin"] = user.is_admin
         ui.navigate.to(redirect_to)
     except Exception:
         ui.notify("Login error. Please try again.", color="negative")

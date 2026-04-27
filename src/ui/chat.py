@@ -159,9 +159,6 @@ async def _stream_response(state: ChatState, query: str):
 
             if isinstance(item, str):
                 accumulated += item
-                state.messages[assistant_idx]["content"] = accumulated
-                message_list.refresh()
-                await _scroll_to_bottom()
             elif isinstance(item, ThinkEvent):
                 state.messages[assistant_idx].setdefault("think_events", []).append(
                     {
@@ -170,8 +167,6 @@ async def _stream_response(state: ChatState, query: str):
                         "details": item.details or {},
                     },
                 )
-                message_list.refresh()
-                await _scroll_to_bottom()
             elif isinstance(item, RAGResult):
                 final_result = item
 
