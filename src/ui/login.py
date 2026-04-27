@@ -1,6 +1,13 @@
-from nicegui import ui
+from datetime import timedelta
 
+from nicegui import ui
+from sqlalchemy import select
+
+from src.auth.jwt import create_access_token
+from src.auth.passwords import verify_password
 from src.config import get_settings
+from src.db.engine import async_session_factory
+from src.db.models import User
 from src.ui.styles import inject_global_styles
 
 
@@ -47,21 +54,27 @@ async def _do_login(username_input, password_input, redirect_to: str):
         return
 
     try:
-        import httpx
+        async with async_session_factory() as session:
+            result = await session.execute(select(User).where(User.username == username))
+            user = result.scalar_one_or_none()
+
+        if user is None or not verify_password(password, user.hashed_password):
+            ui.notify("Invalid credentials", color="negative")
+            return
+
         settings = get_settings()
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                f"{settings.app_url}/api/auth/login",
-                json={"username": username, "password": password},
-            )
-            if resp.status_code == 200:
-                token = resp.json().get("access_token", "")
-                if token:
-                    ui.run_javascript(f"document.cookie = 'token={token}; path=/; max-age=86400';")
-                    ui.navigate.to(redirect_to)
-                    return
-            ui.notify(resp.json().get("detail", "Login failed"), color="negative")
+        token = create_access_token(
+            user_id=user.id,
+            secret=settings.auth.jwt_secret.get_secret_value(),
+            algorithm=settings.auth.jwt_algorithm,
+            expires_delta=timedelta(minutes=settings.auth.jwt_expire_minutes),
+        )
+
+        ui.run_javascript(
+            f"document.cookie = 'access_token={token}; path=/; max-age={settings.auth.jwt_expire_minutes * 60}; SameSite=Lax';"
+        )
+        ui.navigate.to(redirect_to)
     except Exception:
-        ui.notify("Connection error. Is the server running?", color="negative")
+        ui.notify("Login error. Please try again.", color="negative")
 
 
